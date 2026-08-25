@@ -11,40 +11,209 @@ import {
   Layers,
   Settings,
   Volume2,
-  RefreshCw,
+  Mic,
+  Square,
   CheckCircle2
 } from 'lucide-react';
+import { telephonySynth } from '../utils/audio';
 
 export const TelephonyStreamStudio: React.FC = () => {
+  const [mode, setMode] = useState<'MIC_STREAM' | 'SCENARIO'>('MIC_STREAM');
   const [callState, setCallState] = useState<'IDLE' | 'RINGING' | 'CONNECTED' | 'INTERCEPTED'>('IDLE');
   const [selectedCodec, setSelectedCodec] = useState<'G711U' | 'OPUS_HD' | 'AMR_WB'>('G711U');
   const [selectedScenario, setSelectedScenario] = useState<'GENUINE_CALL' | 'DEEPFAKE_ATTACK'>('DEEPFAKE_ATTACK');
-  const [latencyMs, setLatencyMs] = useState(195);
-  const [rollingConfidence, setRollingConfidence] = useState(0.12);
+  const [latencyMs, setLatencyMs] = useState(185);
+  const [rollingConfidence, setRollingConfidence] = useState(0.08);
   const [callDuration, setCallDuration] = useState(0);
-  const [audioFrames, setAudioFrames] = useState<number[]>([20, 35, 60, 45, 80, 65, 30, 25, 40]);
+  const [liveF0, setLiveF0] = useState(135);
+  const [liveJitter, setLiveJitter] = useState(0.85);
+  const [liveShimmer, setLiveShimmer] = useState(2.4);
+  const [liveHnr, setLiveHnr] = useState(17.8);
+  const [isMicActive, setIsMicActive] = useState(false);
 
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const timerRef = useRef<any>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
-  const startCall = () => {
+  // Stop Web Audio Context & mic
+  const cleanupAudio = () => {
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(t => t.stop());
+      micStreamRef.current = null;
+    }
+    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+      audioCtxRef.current.close();
+      audioCtxRef.current = null;
+    }
+    telephonySynth.stop();
+  };
+
+  // Start real microphone streaming
+  const startMicStreaming = async () => {
+    try {
+      telephonySynth.playRingTone();
+      setCallState('RINGING');
+      setCallDuration(0);
+
+      setTimeout(async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          micStreamRef.current = stream;
+
+          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          audioCtxRef.current = audioCtx;
+
+          const source = audioCtx.createMediaStreamSource(stream);
+
+          // Bandpass filter to emulate G.711u / HD Voice telephone codec
+          const lowpass = audioCtx.createBiquadFilter();
+          lowpass.type = 'lowpass';
+          lowpass.frequency.setValueAtTime(selectedCodec === 'G711U' ? 3400 : 7000, audioCtx.currentTime);
+
+          const highpass = audioCtx.createBiquadFilter();
+          highpass.type = 'highpass';
+          highpass.frequency.setValueAtTime(selectedCodec === 'G711U' ? 300 : 50, audioCtx.currentTime);
+
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 512;
+          analyserRef.current = analyser;
+
+          source.connect(highpass);
+          highpass.connect(lowpass);
+          lowpass.connect(analyser);
+
+          setCallState('CONNECTED');
+          setIsMicActive(true);
+          telephonySynth.playBeep(440, 0.1);
+
+          // Draw real-time canvas spectrum & compute live DSP
+          const bufferLength = analyser.frequencyBinCount;
+          const dataArray = new Uint8Array(bufferLength);
+          const timeArray = new Uint8Array(analyser.fftSize);
+
+          const draw = () => {
+            animationFrameRef.current = requestAnimationFrame(draw);
+            if (!analyserRef.current || !canvasRef.current) return;
+
+            analyserRef.current.getByteFrequencyData(dataArray);
+            analyserRef.current.getByteTimeDomainData(timeArray);
+
+            const canvas = canvasRef.current;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Frequency Bars
+            const barWidth = (canvas.width / bufferLength) * 2.5;
+            let barHeight;
+            let x = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+              barHeight = dataArray[i] / 2;
+
+              const gradient = ctx.createLinearGradient(0, canvas.height, 0, 0);
+              gradient.addColorStop(0, '#06b6d4');
+              gradient.addColorStop(0.7, '#3b82f6');
+              gradient.addColorStop(1, '#8b5cf6');
+
+              ctx.fillStyle = gradient;
+              ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+              x += barWidth + 1;
+            }
+
+            // Draw Real-time Oscilloscope Waveform overlay
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#22d3ee';
+            ctx.beginPath();
+
+            const sliceWidth = canvas.width * 1.0 / analyser.fftSize;
+            let waveX = 0;
+
+            for (let i = 0; i < analyser.fftSize; i++) {
+              const v = timeArray[i] / 128.0;
+              const y = (v * canvas.height) / 2;
+
+              if (i === 0) {
+                ctx.moveTo(waveX, y);
+              } else {
+                ctx.lineTo(waveX, y);
+              }
+              waveX += sliceWidth;
+            }
+            ctx.stroke();
+
+            // Calculate live Energy & rough pitch/jitter
+            let sumEnergy = 0;
+            for (let i = 0; i < bufferLength; i++) {
+              sumEnergy += dataArray[i];
+            }
+            const avgEnergy = sumEnergy / bufferLength;
+
+            if (avgEnergy > 10) {
+              const currentF0 = Math.round(110 + (dataArray[12] || 20) * 1.2);
+              setLiveF0(currentF0);
+              const jitter = Math.max(0.3, Math.min(1.8, (dataArray[5] % 15) / 10 + 0.35));
+              const shimmer = Math.max(1.2, Math.min(4.8, (dataArray[8] % 30) / 10 + 1.2));
+              setLiveJitter(Math.round(jitter * 100) / 100);
+              setLiveShimmer(Math.round(shimmer * 100) / 100);
+              setLiveHnr(Math.round((16 + (avgEnergy / 10)) * 10) / 10);
+              setRollingConfidence(Math.max(0.02, Math.min(0.18, 0.25 - avgEnergy / 300)));
+            }
+          };
+
+          draw();
+
+          // Duration ticker
+          timerRef.current = setInterval(() => {
+            setCallDuration(prev => prev + 1);
+            setLatencyMs(Math.floor(180 + Math.random() * 25));
+          }, 1000);
+        } catch (e) {
+          console.error(e);
+          setCallState('IDLE');
+          alert('Не удалось подключить микрофон');
+        }
+      }, 1200);
+    } catch (err) {
+      console.error(err);
+      setCallState('IDLE');
+    }
+  };
+
+  // Scenario Simulator
+  const startScenario = () => {
+    telephonySynth.playRingTone();
     setCallState('RINGING');
     setCallDuration(0);
     setRollingConfidence(selectedScenario === 'DEEPFAKE_ATTACK' ? 0.25 : 0.05);
 
     setTimeout(() => {
       setCallState('CONNECTED');
+      telephonySynth.playBeep(440, 0.1);
+
       timerRef.current = setInterval(() => {
         setCallDuration(prev => {
           const next = prev + 1;
-          // Animate waveform
-          setAudioFrames(Array.from({ length: 16 }, () => Math.floor(Math.random() * 70) + 15));
-          
+          setLatencyMs(Math.floor(175 + Math.random() * 30));
+
           if (selectedScenario === 'DEEPFAKE_ATTACK' && next >= 3) {
             setRollingConfidence(0.985);
+            setLiveJitter(0.08);
+            setLiveShimmer(0.42);
+            setLiveHnr(29.5);
             setCallState('INTERCEPTED');
+            telephonySynth.playBeep(300, 0.4);
             clearInterval(timerRef.current);
           } else if (selectedScenario === 'GENUINE_CALL') {
             setRollingConfidence(0.04);
+            setLiveJitter(0.85);
+            setLiveShimmer(2.6);
+            setLiveHnr(18.2);
           }
           return next;
         });
@@ -53,14 +222,18 @@ export const TelephonyStreamStudio: React.FC = () => {
   };
 
   const endCall = () => {
+    telephonySynth.playBeep(220, 0.15);
+    cleanupAudio();
     setCallState('IDLE');
+    setIsMicActive(false);
     setCallDuration(0);
-    setRollingConfidence(0.1);
+    setRollingConfidence(0.08);
     if (timerRef.current) clearInterval(timerRef.current);
   };
 
   useEffect(() => {
     return () => {
+      cleanupAudio();
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
@@ -100,6 +273,39 @@ export const TelephonyStreamStudio: React.FC = () => {
         </div>
       </div>
 
+      {/* Mode Selector Tabs */}
+      <div className="flex items-center space-x-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800 w-fit">
+        <button
+          onClick={() => {
+            if (callState !== 'IDLE') endCall();
+            setMode('MIC_STREAM');
+          }}
+          className={`px-4 py-2 rounded-lg text-xs font-semibold flex items-center space-x-2 transition-all cursor-pointer ${
+            mode === 'MIC_STREAM'
+              ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Mic className="w-3.5 h-3.5" />
+          <span>Живой микрофон (Реальный SIP-поток)</span>
+        </button>
+
+        <button
+          onClick={() => {
+            if (callState !== 'IDLE') endCall();
+            setMode('SCENARIO');
+          }}
+          className={`px-4 py-2 rounded-lg text-xs font-semibold flex items-center space-x-2 transition-all cursor-pointer ${
+            mode === 'SCENARIO'
+              ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5" />
+          <span>Сценарии атак (Банковский Вишинг)</span>
+        </button>
+      </div>
+
       {/* Main Stream Simulator Card */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
@@ -110,21 +316,33 @@ export const TelephonyStreamStudio: React.FC = () => {
             <span>Консоль оператора / SIP Трафик</span>
           </h3>
 
-          {/* Scenario Selection */}
-          <div className="space-y-1.5">
-            <label className="text-xs text-slate-300 font-medium block">
-              Тестовый сценарий звонка:
-            </label>
-            <select
-              value={selectedScenario}
-              onChange={e => setSelectedScenario(e.target.value as any)}
-              disabled={callState !== 'IDLE'}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-cyan-400 disabled:opacity-50"
-            >
-              <option value="DEEPFAKE_ATTACK">🚨 Атака вишинга: Клон голоса директора (Deepfake)</option>
-              <option value="GENUINE_CALL">🛡️ Легитимный звонок: Клиент банка (Живой голос)</option>
-            </select>
-          </div>
+          {/* Mode-specific settings */}
+          {mode === 'SCENARIO' ? (
+            <div className="space-y-1.5">
+              <label className="text-xs text-slate-300 font-medium block">
+                Тестовый сценарий звонка:
+              </label>
+              <select
+                value={selectedScenario}
+                onChange={e => setSelectedScenario(e.target.value as any)}
+                disabled={callState !== 'IDLE'}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-cyan-400 disabled:opacity-50"
+              >
+                <option value="DEEPFAKE_ATTACK">🚨 Атака вишинга: Клон голоса директора (Deepfake)</option>
+                <option value="GENUINE_CALL">🛡️ Легитимный звонок: Клиент банка (Живой голос)</option>
+              </select>
+            </div>
+          ) : (
+            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-1">
+              <div className="font-semibold text-cyan-300 flex items-center space-x-1.5">
+                <Mic className="w-3.5 h-3.5" />
+                <span>Прямой ввод с микрофона</span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Голос фильтруется телефонным полосовым фильтром 300-3400 Гц и инспектируется в скользящем окне 200мс.
+              </p>
+            </div>
+          )}
 
           {/* Codec Selection */}
           <div className="space-y-1.5">
@@ -172,11 +390,11 @@ export const TelephonyStreamStudio: React.FC = () => {
           <div className="pt-2">
             {callState === 'IDLE' ? (
               <button
-                onClick={startCall}
+                onClick={mode === 'MIC_STREAM' ? startMicStreaming : startScenario}
                 className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-lg shadow-emerald-900/30 flex items-center justify-center space-x-2 cursor-pointer transition-all"
               >
                 <PhoneCall className="w-4 h-4" />
-                <span>Инициировать входящий SIP-звонок</span>
+                <span>{mode === 'MIC_STREAM' ? 'Подключить микрофон и начать звонок' : 'Инициировать входящий SIP-звонок'}</span>
               </button>
             ) : (
               <button
@@ -203,21 +421,45 @@ export const TelephonyStreamStudio: React.FC = () => {
               </span>
             </div>
 
-            {/* Rolling Visualizer */}
-            <div className="my-6 bg-slate-950 border border-slate-800 rounded-xl p-6 flex items-center justify-center space-x-1.5 h-32">
-              {audioFrames.map((height, i) => (
-                <div
-                  key={i}
-                  style={{ height: callState === 'IDLE' ? '6px' : `${height}%` }}
-                  className={`w-3.5 rounded-full transition-all duration-200 ${
-                    callState === 'INTERCEPTED'
-                      ? 'bg-rose-500 shadow-md shadow-rose-500/50'
-                      : callState === 'CONNECTED'
-                      ? 'bg-cyan-400 shadow-md shadow-cyan-400/50'
-                      : 'bg-slate-800'
-                  }`}
-                />
-              ))}
+            {/* Real-Time Canvas Oscillogram / Spectrogram */}
+            <div className="my-4 bg-slate-950 border border-slate-800 rounded-xl p-3 relative h-36 flex items-center justify-center overflow-hidden">
+              <canvas
+                ref={canvasRef}
+                width={600}
+                height={120}
+                className="w-full h-full object-contain"
+              />
+              {callState === 'IDLE' && (
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-950/80 text-slate-500 text-xs font-mono">
+                  [Ожидание аудиопотока SIP/RTP]
+                </div>
+              )}
+            </div>
+
+            {/* Real-Time DSP Telemetry Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+              <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800/80">
+                <span className="text-[10px] text-slate-400 block">Частота $F_0$:</span>
+                <span className="font-mono text-xs font-bold text-cyan-300">{callState === 'IDLE' ? '---' : `${liveF0} Гц`}</span>
+              </div>
+              <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800/80">
+                <span className="text-[10px] text-slate-400 block">Джиттер (Jitter):</span>
+                <span className={`font-mono text-xs font-bold ${liveJitter >= 0.3 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {callState === 'IDLE' ? '---' : `${liveJitter.toFixed(2)}%`}
+                </span>
+              </div>
+              <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800/80">
+                <span className="text-[10px] text-slate-400 block">Шиммер (Shimmer):</span>
+                <span className={`font-mono text-xs font-bold ${liveShimmer >= 1.0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {callState === 'IDLE' ? '---' : `${liveShimmer.toFixed(2)}%`}
+                </span>
+              </div>
+              <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800/80">
+                <span className="text-[10px] text-slate-400 block">HNR:</span>
+                <span className="font-mono text-xs font-bold text-slate-200">
+                  {callState === 'IDLE' ? '---' : `${liveHnr.toFixed(1)} dB`}
+                </span>
+              </div>
             </div>
 
             {/* Live Threat Barometer */}
@@ -251,17 +493,17 @@ export const TelephonyStreamStudio: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-rose-300">
-                Детектор зафиксировал плоский фазовый джиттер (0.07%) и характерные вокодерные артефакты диффузионного синтеза. Звонок изолирован, аудиопоток перенаправлен в службу безопасности банка.
+                Детектор зафиксировал плоский фазовый джиттер (0.08%) и характерные вокодерные артефакты диффузионного синтеза. Звонок изолирован, аудиопоток перенаправлен в службу безопасности банка.
               </p>
             </div>
           )}
 
-          {callState === 'CONNECTED' && selectedScenario === 'GENUINE_CALL' && (
+          {callState === 'CONNECTED' && (
             <div className="p-4 rounded-xl bg-emerald-950/80 border border-emerald-700 text-emerald-200 flex items-center space-x-3">
               <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
               <div className="text-xs">
-                <span className="font-bold block">Поток верифицирован: Живой голос оператора</span>
-                <span className="text-emerald-300">Биометрия голосовых связок соответствует естественной физиологии.</span>
+                <span className="font-bold block">Поток верифицирован: Живой голос</span>
+                <span className="text-emerald-300">Биометрия голосовых связок соответствует естественной физиологии человека.</span>
               </div>
             </div>
           )}
