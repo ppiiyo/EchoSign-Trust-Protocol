@@ -1,0 +1,7 @@
+{
+  "name": "EchoSign Trust Protocol v4.0",
+  "description": "Enterprise audio authenticity verification, cryptographic watermark embedding, voice liveness detection, Whisper transcription, and immutable blockchain ledger.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
