@@ -261,15 +261,15 @@ export const VerificationStudio: React.FC<VerificationStudioProps> = ({ onVerifi
           )}
         </div>
 
-        {/* Instant Test Preset Launcher */}
+        {/* Quick Sample Voice Buttons */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between">
           <div>
             <div className="flex items-center space-x-2 mb-3">
-              <Sparkles className="w-5 h-5 text-amber-400" />
-              <h3 className="text-base font-semibold text-slate-100">Тестовые Пресеты</h3>
+              <Sparkles className="w-5 h-5 text-cyan-400" />
+              <h3 className="text-base font-semibold text-slate-100">Примеры голосов</h3>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed mb-4">
-              Запустите готовые акустические образцы для мгновенной демонстрации работы алгоритмов Liveness и детекции нейросетевых подделок:
+              Быстрая проверка на готовых образцах для оценки работы детектора:
             </p>
 
             <div className="space-y-2.5">
@@ -286,7 +286,7 @@ export const VerificationStudio: React.FC<VerificationStudioProps> = ({ onVerifi
                     <div className="text-xs font-semibold text-slate-200 group-hover:text-emerald-300">
                       Живой голос человека
                     </div>
-                    <div className="text-[10px] text-slate-400">Естественный джиттер & шиммер</div>
+                    <div className="text-[10px] text-slate-400">Настоящая речь с естественной биометрией</div>
                   </div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400" />
@@ -303,9 +303,9 @@ export const VerificationStudio: React.FC<VerificationStudioProps> = ({ onVerifi
                   </div>
                   <div>
                     <div className="text-xs font-semibold text-slate-200 group-hover:text-rose-300">
-                      Нейросетевой Deepfake / TTS
+                      Искусственный голос (AI Deepfake)
                     </div>
-                    <div className="text-[10px] text-slate-400">Жесткий шаг и артефакты вокодера</div>
+                    <div className="text-[10px] text-slate-400">Синтез речи нейросетью / TTS</div>
                   </div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-rose-400" />
@@ -322,9 +322,9 @@ export const VerificationStudio: React.FC<VerificationStudioProps> = ({ onVerifi
                   </div>
                   <div>
                     <div className="text-xs font-semibold text-slate-200 group-hover:text-indigo-300">
-                      Музыкальный трек
+                      Студийная аудиозапись
                     </div>
-                    <div className="text-[10px] text-slate-400">Инструментал + вокальные гармоники</div>
+                    <div className="text-[10px] text-slate-400">Вокал с фонограммой и эффектами</div>
                   </div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-indigo-400" />
@@ -333,8 +333,8 @@ export const VerificationStudio: React.FC<VerificationStudioProps> = ({ onVerifi
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-800 text-[11px] text-slate-500 flex items-center justify-between">
-            <span>Протокол: 4 вектора проверки</span>
-            <span className="text-cyan-400 font-mono">HMAC+PoW</span>
+            <span>Анализ: Liveness + Спектр + Водяной знак</span>
+            <span className="text-cyan-400 font-mono">Акустический DSP</span>
           </div>
         </div>
       </div>

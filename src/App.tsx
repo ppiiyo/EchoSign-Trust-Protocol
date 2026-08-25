@@ -3,12 +3,10 @@ import { Navbar } from './components/Navbar';
 import { VerificationStudio } from './components/VerificationStudio';
 import { WatermarkStudio } from './components/WatermarkStudio';
 import { BlockchainExplorer } from './components/BlockchainExplorer';
-import { ForensicsLab } from './components/ForensicsLab';
-import { AuditReportView } from './components/AuditReportView';
 import { ChainStats, VerificationResponse } from './types';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'verify' | 'watermark' | 'blockchain' | 'forensics' | 'audit'>('verify');
+  const [activeTab, setActiveTab] = useState<'verify' | 'watermark' | 'blockchain'>('verify');
   const [chainStats, setChainStats] = useState<ChainStats | null>(null);
 
   const fetchChainStats = async () => {
@@ -43,7 +41,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {activeTab === 'verify' && (
           <VerificationStudio onVerificationComplete={handleVerificationComplete} />
         )}
@@ -59,28 +57,20 @@ export default function App() {
         {activeTab === 'blockchain' && (
           <BlockchainExplorer onChainUpdate={fetchChainStats} />
         )}
-
-        {activeTab === 'forensics' && (
-          <ForensicsLab />
-        )}
-
-        {activeTab === 'audit' && (
-          <AuditReportView />
-        )}
       </main>
 
       {/* Protocol Footer */}
-      <footer className="border-t border-slate-900 bg-slate-950/80 py-6 text-slate-500 text-xs font-mono">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <footer className="border-t border-slate-900 bg-slate-950/80 py-5 text-slate-500 text-xs font-mono">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center space-x-3">
-            <span className="font-bold text-slate-400">EchoSign Trust Protocol v4.0.0</span>
+            <span className="font-semibold text-slate-400">EchoSign Voice Inspector</span>
             <span>•</span>
-            <span>DCT / DSSS Watermarks</span>
+            <span>Анализ биометрии связок (Джиттер/Шиммер/HNR)</span>
             <span>•</span>
-            <span>Proof-of-Work Blockchain</span>
+            <span>Анти-Deepfake</span>
           </div>
           <div className="text-slate-500 text-[11px]">
-            Biometric Vocal Liveness & Speech Forensics • 2026 Production Standard
+            Высокоточная проверка подлинности аудиозаписей
           </div>
         </div>
       </footer>
