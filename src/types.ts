@@ -215,3 +215,17 @@ export interface AuditSuiteResult {
   };
   findings: AuditFinding[];
 }
+
+export type AppTab =
+  | 'verify'
+  | 'diarization'
+  | 'watermark'
+  | 'developers'
+  | 'webhooks'
+  | 'extension'
+  | 'soc'
+  | 'telephony'
+  | 'deployment'
+  | 'compliance'
+  | 'blockchain';
+

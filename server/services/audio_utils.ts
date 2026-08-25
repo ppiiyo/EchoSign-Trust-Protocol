@@ -10,19 +10,41 @@ export function decodeWav(buffer: Buffer): { audio: Float32Array; sampleRate: nu
     return { audio: samples, sampleRate: 44100, channels: 1 };
   }
 
-  const channels = buffer.readUInt16LE(22);
-  const sampleRate = buffer.readUInt32LE(24);
-  const bitsPerSample = buffer.readUInt16LE(34);
+  let channels = 1;
+  let sampleRate = 44100;
+  let bitsPerSample = 16;
+
+  try {
+    channels = buffer.readUInt16LE(22) || 1;
+    sampleRate = buffer.readUInt32LE(24) || 44100;
+    bitsPerSample = buffer.readUInt16LE(34) || 16;
+  } catch {
+    // Default values if format chunk read fails
+  }
+
+  const bytesPerSample = Math.max(1, Math.floor(bitsPerSample / 8));
 
   // Find 'data' chunk
-  let offset = 36;
+  let offset = 12;
   while (offset < buffer.length - 8) {
     const chunkId = buffer.toString('ascii', offset, offset + 4);
-    const chunkSize = buffer.readUInt32LE(offset + 4);
-    if (chunkId === 'data') {
+    let chunkSize = buffer.readUInt32LE(offset + 4);
+    
+    // Guard against corrupted chunk sizes exceeding buffer
+    if (chunkSize > buffer.length - offset - 8) {
+      chunkSize = buffer.length - offset - 8;
+    }
+
+    if (chunkId === 'fmt ') {
+      try {
+        channels = buffer.readUInt16LE(offset + 8 + 2) || channels;
+        sampleRate = buffer.readUInt32LE(offset + 8 + 4) || sampleRate;
+        bitsPerSample = buffer.readUInt16LE(offset + 8 + 14) || bitsPerSample;
+      } catch {}
+    } else if (chunkId === 'data') {
       const dataOffset = offset + 8;
-      const numSamples = Math.floor(chunkSize / (bitsPerSample / 8) / channels);
-      const monoAudio = new Float32Array(numSamples);
+      const numSamples = Math.floor(chunkSize / (bytesPerSample * channels));
+      const monoAudio = new Float32Array(Math.max(0, numSamples));
 
       if (bitsPerSample === 16) {
         for (let i = 0; i < numSamples; i++) {
@@ -31,6 +53,17 @@ export function decodeWav(buffer: Buffer): { audio: Float32Array; sampleRate: nu
             const bytePos = dataOffset + (i * channels + ch) * 2;
             if (bytePos + 1 < buffer.length) {
               sum += buffer.readInt16LE(bytePos) / 32768.0;
+            }
+          }
+          monoAudio[i] = sum / channels;
+        }
+      } else if (bitsPerSample === 24) {
+        for (let i = 0; i < numSamples; i++) {
+          let sum = 0;
+          for (let ch = 0; ch < channels; ch++) {
+            const bytePos = dataOffset + (i * channels + ch) * 3;
+            if (bytePos + 2 < buffer.length) {
+              sum += buffer.readIntLE(bytePos, 3) / 8388608.0;
             }
           }
           monoAudio[i] = sum / channels;
@@ -49,21 +82,26 @@ export function decodeWav(buffer: Buffer): { audio: Float32Array; sampleRate: nu
       } else {
         // Fallback for 8-bit
         for (let i = 0; i < numSamples; i++) {
-          const bytePos = dataOffset + i * channels;
-          if (bytePos < buffer.length) {
-            monoAudio[i] = (buffer.readUInt8(bytePos) - 128) / 128.0;
+          let sum = 0;
+          for (let ch = 0; ch < channels; ch++) {
+            const bytePos = dataOffset + i * channels + ch;
+            if (bytePos < buffer.length) {
+              sum += (buffer.readUInt8(bytePos) - 128) / 128.0;
+            }
           }
+          monoAudio[i] = sum / channels;
         }
       }
 
       return { audio: monoAudio, sampleRate, channels };
     }
-    offset += 8 + chunkSize;
+    // Chunks in RIFF must be padded to even byte boundary
+    offset += 8 + chunkSize + (chunkSize % 2);
   }
 
   // Fallback if data chunk offset search failed
-  const numSamples = Math.floor((buffer.length - 44) / 2);
-  const fallback = new Float32Array(Math.max(1024, numSamples));
+  const numSamples = Math.max(1024, Math.floor((buffer.length - 44) / 2));
+  const fallback = new Float32Array(numSamples);
   for (let i = 0; i < fallback.length; i++) {
     const pos = 44 + i * 2;
     if (pos + 1 < buffer.length) {

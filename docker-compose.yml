@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  echosign-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: echosign/voice-inspector:v4.1.0
+    container_name: echosign-inspector
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - KMS_MASTER_KEY=${KMS_MASTER_KEY:-echosign_default_production_master_key_2026}
+      - WEBHOOK_TIMEOUT_MS=5000
+      - SIP_STREAM_CONCURRENCY=50
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/v1/blockchain/stats"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    resources:
+      limits:
+        cpus: '2.0'
+        memory: 2048M
+      reservations:
+        cpus: '0.5'
+        memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

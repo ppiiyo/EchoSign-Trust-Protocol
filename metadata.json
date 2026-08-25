@@ -1,6 +1,6 @@
 {
-  "name": "EchoSign Trust Protocol v4.0",
-  "description": "Инструмент проверки подлинности голоса, детекции нейросетевых Deepfake / TTS, анализа биометрии голосового тракта (Liveness) и цифровых водяных знаков.",
+  "name": "EchoSign Trust Protocol v4.1",
+  "description": "Корпоративная платформа проверки подлинности голоса, детекции нейросетевых Deepfake / TTS, судебно-акустических отчетов PDF, SIP/RTP телефонии и защиты от вишинга.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

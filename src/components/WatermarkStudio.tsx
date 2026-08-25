@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Lock,
   Download,
@@ -7,7 +7,9 @@ import {
   Zap,
   ArrowRight,
   Shield,
-  Layers
+  Layers,
+  UploadCloud,
+  X
 } from 'lucide-react';
 import { AudioVisualizer } from './AudioVisualizer';
 
@@ -23,11 +25,56 @@ export const WatermarkStudio: React.FC<WatermarkStudioProps> = ({ onTestInVerifi
   const [loading, setLoading] = useState(false);
   const [watermarkedResult, setWatermarkedResult] = useState<any | null>(null);
   const [abMode, setAbMode] = useState<'original' | 'watermarked'>('watermarked');
+  const [isDragging, setIsDragging] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleFileSelected = (file: File) => {
+    setSelectedFile(file);
+    setWatermarkedResult(null);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
-      setWatermarkedResult(null);
+      handleFileSelected(e.target.files[0]);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFileSelected(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleClearFile = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedFile(null);
+    setWatermarkedResult(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -138,31 +185,69 @@ export const WatermarkStudio: React.FC<WatermarkStudioProps> = ({ onTestInVerifi
         </div>
 
         {/* File Select & Embed Action */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-slate-950/60 rounded-xl border border-slate-800">
-          <label className="flex items-center space-x-3 cursor-pointer text-xs text-slate-300 hover:text-cyan-300 transition-colors">
+        <div 
+          className={`flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-xl border transition-all ${
+            isDragging
+              ? 'border-cyan-400 bg-cyan-950/40 ring-2 ring-cyan-500/50'
+              : 'border-slate-800 bg-slate-950/60'
+          }`}
+          onDragOver={handleDragOver}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center space-x-3 cursor-pointer text-xs text-slate-300 hover:text-cyan-300 transition-colors w-full sm:w-auto"
+          >
             <input
+              ref={fileInputRef}
               type="file"
-              accept="audio/*"
+              accept=".wav,.mp3,.m4a,.flac,.ogg,.aac,.webm,audio/*,audio/wav,audio/x-wav,audio/wave,audio/vnd.wave,audio/mpeg,audio/mp3,audio/flac,audio/ogg"
               onChange={handleFileChange}
               className="hidden"
             />
-            <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center border border-slate-700">
-              <Layers className="w-4 h-4 text-cyan-400" />
+            <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center border border-slate-700 shrink-0 group-hover:border-cyan-500">
+              {isDragging ? (
+                <UploadCloud className="w-5 h-5 text-cyan-300 animate-bounce" />
+              ) : selectedFile ? (
+                <FileCheck className="w-5 h-5 text-emerald-400" />
+              ) : (
+                <Layers className="w-4 h-4 text-cyan-400" />
+              )}
             </div>
             <div>
-              <span className="font-semibold block">
-                {selectedFile ? selectedFile.name : 'Использовать свой аудиофайл'}
-              </span>
+              <div className="flex items-center space-x-2">
+                <span className="font-semibold block truncate max-w-[240px]">
+                  {isDragging
+                    ? 'Отпустите WAV файл сюда'
+                    : selectedFile
+                    ? selectedFile.name
+                    : 'Загрузить WAV / MP3 для водяного знака'}
+                </span>
+                {selectedFile && (
+                  <button
+                    type="button"
+                    onClick={handleClearFile}
+                    className="text-[10px] text-rose-400 hover:text-rose-300 px-1.5 py-0.5 rounded bg-rose-950/60 border border-rose-800/80 cursor-pointer"
+                  >
+                    Очистить
+                  </button>
+                )}
+              </div>
               <span className="text-[10px] text-slate-500">
-                (Или нажмите «Внедрить» для генерации мастер-голоса)
+                {selectedFile
+                  ? `${(selectedFile.size / (1024 * 1024)).toFixed(2)} МБ • Кликните для замены`
+                  : 'Перетащите WAV сюда или нажмите «Внедрить» для генерации мастер-голоса'}
               </span>
             </div>
-          </label>
+          </div>
 
           <button
+            type="button"
             onClick={handleEmbedWatermark}
             disabled={loading}
-            className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-semibold text-xs shadow-lg shadow-cyan-500/20 flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 transition-all"
+            className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-semibold text-xs shadow-lg shadow-cyan-500/20 flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 transition-all shrink-0"
           >
             {loading ? (
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
