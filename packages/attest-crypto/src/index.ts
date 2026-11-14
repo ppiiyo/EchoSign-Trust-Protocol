@@ -3,12 +3,6 @@
  *
  * Minimal, dependency-free Ed25519 sign/verify + canonical manifest helpers
  * for EchoSign Attest (scenario B).
- *
- * Design goals (E1):
- * - Third parties can verify without any shared secret (asymmetric only).
- * - Private keys never leave the process in the clear.
- * - Deterministic canonical JSON for hashing.
- * - Test vectors that can be checked with pure node:crypto.
  */
 
 import crypto from 'node:crypto';
@@ -187,3 +181,6 @@ export async function generateTestVector(): Promise<{
 
 export { EncryptedKeystore } from './keystore.js';
 export type { StoredKeyRecord, KeystoreFile, KeystoreOptions } from './keystore.js';
+
+export { requestTimestamp, timestampCanonicalJson } from './tsa.js';
+export type { TsaRequestOptions, TsaResult } from './tsa.js';
