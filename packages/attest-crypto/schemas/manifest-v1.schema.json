@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://echosign.dev/schemas/manifest-v1.json",
+  "title": "EchoSign Attest Manifest v1",
+  "description": "Canonical signed manifest for audio integrity / chain-of-custody (E1-3)",
+  "type": "object",
+  "required": ["version", "contentHash", "capture", "timestamps", "signer"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": "1" },
+    "contentHash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 hex of the raw audio bytes"
+    },
+    "segmentHashes": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+    },
+    "capture": {
+      "type": "object",
+      "required": ["startedAt", "endedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "startedAt": { "type": "string", "format": "date-time" },
+        "endedAt": { "type": "string", "format": "date-time" },
+        "sampleRate": { "type": "integer", "minimum": 8000 },
+        "channels": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "deviceId": { "type": "string" }
+      }
+    },
+    "timestamps": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serverReceivedAt": { "type": "string", "format": "date-time" },
+        "tsaToken": { "type": "string" },
+        "otsProof": { "type": "string" }
+      }
+    },
+    "signer": {
+      "type": "object",
+      "required": ["keyFingerprint"],
+      "additionalProperties": false,
+      "properties": {
+        "keyFingerprint": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+        "orgId": { "type": "string" },
+        "deviceId": { "type": "string" }
+      }
+    },
+    "meta": { "type": "object", "additionalProperties": true }
+  }
+}
