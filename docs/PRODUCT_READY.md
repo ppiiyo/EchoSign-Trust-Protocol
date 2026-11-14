@@ -2,14 +2,16 @@
 
 | Claim | Evidence | Status |
 | --- | --- | --- |
-| UI is Attest-only | `src/App.tsx`; mocks on `legacy-demo` | WP-1 done |
-| RU/ZH README non-claims | `README.ru.md`, `README.zh.md` | WP-1 done |
-| bun.lock removed; Node>=20 | `.nvmrc`, engines | WP-1 done |
-| Unified keystore | WP-2 | pending |
+| UI Attest-only | `src/App.tsx`, branch `legacy-demo` | WP-1 |
+| RU/ZH non-claims | README.ru/zh | WP-1 |
+| No dual AttestKeyring | `server/services/attest.ts` uses `EncryptedKeystore` only | WP-2 |
+| Loud-fail corrupt/wrong passphrase | `EncryptedKeystore.load` → `KEYSTORE_DECRYPT_FAILED`; `scripts/selftest-keystore-loud.mjs` | WP-2 |
+| Rotation keeps historical verify | `EncryptedKeystore.rotateKey` + keystore tests | WP-2 |
+| Backup/restore documented | `docs/KEYSTORE_BACKUP.md` | WP-2 |
 | TSA/OTS in sign path | WP-3 | pending |
 
 ```bash
-git checkout product-ready
-grep -riE "ISO 17025|courtroom|SIP/RTP|Whisper|Polygon|verifiedOnChain" src/ server/ README* || true
-npm install && npm run lint && npm test && npm run build
+node scripts/selftest-keystore-loud.mjs
+node scripts/selftest-store.mjs
+npm test   # includes tests/keystore-loud-fail.test.ts when vitest available
 ```
