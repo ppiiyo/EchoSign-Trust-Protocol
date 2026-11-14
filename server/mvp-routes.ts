@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import multer from 'multer';
 import crypto from 'node:crypto';
-import { attestSignAudio, attestVerify, attestJwks, attestStatus } from './services/attest';
+import { attestSignAudioWithTime, attestVerify, attestJwks, attestStatus } from './services/attest';
 import {
   createApiKey, listApiKeys, revokeApiKey,
   registerDevice, listDevices,
@@ -19,43 +19,47 @@ export function registerMvpRoutes(app: Express): void {
     if (process.env.DEMO_MODE !== '1' && process.env.ALLOW_PUBLIC_KEY_CREATE !== '1') {
       const bootstrap = req.headers['x-bootstrap-secret'];
       if (!bootstrap || bootstrap !== process.env.BOOTSTRAP_SECRET) {
-        return res.status(403).json({ error: 'Key creation disabled. Set DEMO_MODE=1 or BOOTSTRAP_SECRET.' });
+        return res.status(403).json({ error: 'Key creation requires DEMO_MODE=1 or X-Bootstrap-Secret' });
       }
     }
-    const { record, secret } = createApiKey({ name: (req.body?.name as string) || 'default', orgId: req.body?.orgId, scopes: req.body?.scopes });
-    res.status(201).json({
-      id: record.id, name: record.name, prefix: record.prefix, scopes: record.scopes,
-      orgId: record.orgId, createdAt: record.createdAt, secret,
-      warning: 'Store the secret now — it will not be shown again.',
+    const { record, secret } = createApiKey({
+      name: req.body?.name || 'default',
+      orgId: req.body?.orgId,
+      scopes: req.body?.scopes,
     });
+    res.status(201).json({ id: record.id, prefix: record.prefix, secret, scopes: record.scopes, orgId: record.orgId });
   });
 
-  app.get('/api/v1/keys', requireScope('admin', 'attest:read'), (_req, res) => {
-    res.json({ keys: listApiKeys() });
+  app.get('/api/v1/keys', requireScope('admin'), (_req, res) => {
+    res.json({ keys: listApiKeys().map(({ secretHash, ...r }) => r) });
   });
 
   app.delete('/api/v1/keys/:id', requireScope('admin'), (req, res) => {
-    if (!revokeApiKey(req.params.id)) return res.status(404).json({ error: 'Key not found' });
-    res.json({ revoked: true, id: req.params.id });
+    const ok = revokeApiKey(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Key not found' });
+    res.json({ revoked: true });
   });
 
   app.post('/api/v1/devices', requireScope('devices:write', 'admin', 'attest:sign'), (req: AuthedRequest, res) => {
-    const label = req.body?.label;
-    if (!label) return res.status(400).json({ error: 'label is required' });
-    res.status(201).json(registerDevice({
-      label, orgId: req.apiKey?.orgId || req.body?.orgId,
-      publicKeyPem: req.body?.publicKeyPem, fingerprint: req.body?.fingerprint,
-    }));
+    const device = registerDevice({
+      label: req.body?.label || 'device',
+      orgId: req.apiKey?.orgId || req.body?.orgId,
+    });
+    res.status(201).json(device);
   });
 
   app.get('/api/v1/devices', requireScope('attest:read', 'admin'), (req: AuthedRequest, res) => {
     res.json({ devices: listDevices(req.apiKey?.orgId) });
   });
 
-  app.post('/api/v1/attest/sign', requireScope('attest:sign', 'admin'), upload.single('file'), (req: AuthedRequest, res) => {
+  app.post('/api/v1/attest/sign', requireScope('attest:sign', 'admin'), upload.single('file'), async (req: AuthedRequest, res) => {
     try {
       if (!req.file?.buffer) return res.status(400).json({ error: 'multipart field "file" (audio) is required' });
-      const signed = attestSignAudio({
+      const offline =
+        process.env.ATTEST_OFFLINE === '1' ||
+        req.body.offline === '1' ||
+        req.body.offline === true;
+      const signed = await attestSignAudioWithTime({
         audioBuffer: req.file.buffer,
         sampleRate: req.body.sampleRate ? Number(req.body.sampleRate) : undefined,
         channels: req.body.channels ? Number(req.body.channels) : undefined,
@@ -63,6 +67,7 @@ export function registerMvpRoutes(app: Express): void {
         orgId: req.apiKey?.orgId || req.body.orgId,
         captureStartedAt: req.body.captureStartedAt,
         captureEndedAt: req.body.captureEndedAt,
+        offline,
       });
       const id = `pkg_${crypto.randomBytes(12).toString('hex')}`;
       const pkg: ProofPackage = {
@@ -77,12 +82,16 @@ export function registerMvpRoutes(app: Express): void {
         keyFingerprint: signed.keyFingerprint,
         audioStored: false,
         disclaimer: DISCLAIMER,
+        timeAttestation: signed.timeAttestation,
       };
       savePackage(pkg);
       res.status(201).json({
-        packageId: id, ...signed, disclaimer: DISCLAIMER,
+        packageId: id,
+        ...signed,
+        disclaimer: DISCLAIMER,
         verifyUrl: `/api/v1/attest/packages/${id}`,
-        offlineHint: 'Download bundle and open /verify/ — no upload.',
+        offlineHint:
+          'Download bundle and open /verify/ — no upload. TSA/OTS full verify: CLI (openssl ts / ots verify).',
       });
     } catch (err) {
       console.error('[attest/sign]', err);
@@ -93,7 +102,9 @@ export function registerMvpRoutes(app: Express): void {
   app.post('/api/v1/attest/verify', (req, res) => {
     try {
       const { manifest, signatureB64u, publicKeyPem } = req.body || {};
-      if (!manifest || !signatureB64u) return res.status(400).json({ error: 'manifest and signatureB64u are required' });
+      if (!manifest || !signatureB64u) {
+        return res.status(400).json({ error: 'manifest and signatureB64u are required' });
+      }
       const result = attestVerify({ manifest, signatureB64u, publicKeyPem });
       res.status(result.valid ? 200 : 400).json(result);
     } catch (err) {
@@ -121,6 +132,7 @@ export function registerMvpRoutes(app: Express): void {
       manifest: pkg.manifest,
       signatureB64u: pkg.signatureB64u,
       publicKeyPem: pkg.publicKeyPem,
+      timeAttestation: pkg.timeAttestation,
       disclaimer: pkg.disclaimer,
       createdAt: pkg.createdAt,
     });
