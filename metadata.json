@@ -1,7 +1,6 @@
 {
-  "name": "EchoSign Trust Protocol v4.1",
-  "description": "Корпоративная платформа проверки подлинности голоса, детекции нейросетевых Deepfake / TTS, судебно-акустических отчетов PDF, SIP/RTP телефонии и защиты от вишинга.",
-  "requestFramePermissions": ["microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "name": "EchoSign Attest",
+  "description": "Cryptographic audio integrity and provenance (Ed25519, optional TSA/OTS, Merkle log). Does not detect deepfakes or certify courtroom evidence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
 }
-
