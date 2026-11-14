@@ -1,15 +1,16 @@
 # Product-ready tracker
 
-| Claim | Evidence | Status |
+| WP | Claim | Status |
 | --- | --- | --- |
-| WP-1…WP-5 core | prior commits | done |
-| Persistence facade PG/file | `server/services/persistence.ts` | done |
-| Package+log on PG txn path | `savePackageAndLog` | done |
-| prod forbids DEMO_MODE | `assertSafeRuntime` | WP-6 |
-| Headers + rate limits | `server/security.ts` | WP-6 |
-| SSRF helper | `isBlockedOutboundHost` | WP-6 |
-| Verifier/PDF/QR | WP-7 | pending |
+| 1–6 | Core product path | done |
+| 7 | `verify-bundle.mjs` full CLI | done |
+| 7 | Integrity report HTML/PDF/JSON | done |
+| 7 | Browser offline verifier honest UX | done |
+| 8 | Capture SDK / release polish | pending |
 
 ```bash
-node scripts/selftest-security.mjs
+node scripts/demo-sign-verify.mjs
+node scripts/verify-bundle.mjs tmp-demo/sample.esatt.json
+node scripts/report-integrity.mjs tmp-demo/sample.esatt.json --out tmp-report
+# open /verify/ in the app
 ```
