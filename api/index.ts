@@ -10,8 +10,7 @@ const DATA = process.env.ATTEST_DATA_DIR || '/tmp/echosign-data';
 const DISCLAIMER =
   'Signature proves integrity of the audio bytes at signing time. It does not prove a human was speaking.';
 
-type Req = IncomingMessage & { url?: string; method?: string; body?: unknown; headers: IncomingMessage['headers'] };
-type Res = ServerResponse & { status: (code: number) => Res; json: (body: unknown) => void };
+type Req = IncomingMessage & { url?: string; method?: string; body?: unknown };
 
 function ensureData() {
   try { mkdirSync(DATA, { recursive: true }); } catch { /* */ }
@@ -53,7 +52,15 @@ function sortKeys(value: unknown): unknown {
   return value;
 }
 
-function readBody(req: IncomingMessage): Promise<Buffer> {
+async function readRawBody(req: Req): Promise<Buffer> {
+  const anyReq = req as Req & { body?: unknown };
+  if (anyReq.body !== undefined && anyReq.body !== null) {
+    if (Buffer.isBuffer(anyReq.body)) return anyReq.body;
+    if (typeof anyReq.body === 'string') return Buffer.from(anyReq.body);
+    if (anyReq.body instanceof ArrayBuffer) return Buffer.from(anyReq.body);
+    // JSON already parsed
+    if (typeof anyReq.body === 'object') return Buffer.from(JSON.stringify(anyReq.body));
+  }
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     req.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
@@ -63,24 +70,46 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
 }
 
 function parseMultipart(buf: Buffer, contentType: string): { file?: Buffer; fields: Record<string, string> } {
-  const m = /boundary=(?:="?)([^";]+)/i.exec(contentType);
+  const m = /boundary=(?:"?)([^";]+)/i.exec(contentType);
   if (!m) return { fields: {} };
-  const boundary = m[1];
-  const parts = buf.toString('binary').split('--' + boundary);
+  const boundary = m[1].trim();
+  const sep = Buffer.from('--' + boundary);
   const fields: Record<string, string> = {};
   let file: Buffer | undefined;
-  for (const part of parts) {
-    if (!part || part === '--\r\n' || part === '--') continue;
-    const idx = part.indexOf('\r\n\r\n');
-    if (idx < 0) continue;
-    const head = part.slice(0, idx);
-    let body = part.slice(idx + 4);
-    if (body.endsWith('\r\n')) body = body.slice(0, -2);
+
+  // Split by boundary markers in binary
+  let start = buf.indexOf(sep);
+  while (start >= 0) {
+    let next = buf.indexOf(sep, start + sep.length);
+    if (next < 0) next = buf.length;
+    let part = buf.subarray(start + sep.length, next);
+    // strip leading CRLF
+    if (part[0] === 0x0d && part[1] === 0x0a) part = part.subarray(2);
+    // strip trailing CRLF
+    if (part.length >= 2 && part[part.length - 2] === 0x0d && part[part.length - 1] === 0x0a) {
+      part = part.subarray(0, part.length - 2);
+    }
+    // end marker --
+    if (part[0] === 0x2d && part[1] === 0x2d) break;
+
+    const headerEnd = part.indexOf(Buffer.from('\r\n\r\n'));
+    if (headerEnd < 0) {
+      start = next;
+      continue;
+    }
+    const head = part.subarray(0, headerEnd).toString('utf8');
+    let body = part.subarray(headerEnd + 4);
+    // final boundary may leave trailing \r\n
     const nameMatch = /name="([^"]+)"/i.exec(head);
     const filenameMatch = /filename="([^"]*)"/i.exec(head);
-    if (!nameMatch) continue;
-    if (filenameMatch) file = Buffer.from(body, 'binary');
-    else fields[nameMatch[1]] = body.replace(/\r\n$/, '');
+    if (nameMatch) {
+      if (filenameMatch !== null) {
+        file = Buffer.from(body);
+      } else {
+        fields[nameMatch[1]] = body.toString('utf8').replace(/\r\n$/, '');
+      }
+    }
+    start = next;
   }
   return { file, fields };
 }
@@ -89,11 +118,20 @@ function sendJson(res: ServerResponse, code: number, body: unknown) {
   const payload = JSON.stringify(body);
   res.statusCode = code;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.end(payload);
 }
 
 export default async function handler(req: Req, res: ServerResponse) {
   try {
+    if ((req.method || '').toUpperCase() === 'OPTIONS') {
+      res.statusCode = 204;
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      return res.end();
+    }
+
     const url = req.url || '/';
     const path = (url.split('?')[0] || '/').replace(/\/+$/, '') || '/';
     const method = (req.method || 'GET').toUpperCase();
@@ -119,14 +157,28 @@ export default async function handler(req: Req, res: ServerResponse) {
 
     if (method === 'POST' && (path.includes('/attest/sign') || path.endsWith('/sign'))) {
       const ct = String(req.headers['content-type'] || '');
+      const raw = await readRawBody(req);
       let audio: Buffer | undefined;
+
       if (ct.includes('multipart/form-data')) {
-        const raw = await readBody(req);
         audio = parseMultipart(raw, ct).file;
+      } else if (ct.includes('application/json')) {
+        try {
+          const j = JSON.parse(raw.toString('utf8')) as { audioBase64?: string; fileBase64?: string };
+          const b64 = j.audioBase64 || j.fileBase64;
+          if (b64) audio = Buffer.from(b64, 'base64');
+        } catch { /* */ }
+      } else if (raw.length > 0) {
+        audio = raw;
       }
+
       if (!audio || audio.length === 0) {
-        return sendJson(res, 400, { error: 'Missing audio file in multipart field "file"' });
+        return sendJson(res, 400, {
+          error: 'Missing audio file in multipart field "file"',
+          debug: { contentType: ct, bodyBytes: raw.length },
+        });
       }
+
       const contentHash = crypto.createHash('sha256').update(audio).digest('hex');
       const now = new Date().toISOString();
       const { privateKey, publicKeyPem, fingerprint } = getOrCreateKeyPair();
@@ -147,13 +199,17 @@ export default async function handler(req: Req, res: ServerResponse) {
         publicKeyPem,
         keyFingerprint: fingerprint,
         contentHash,
-        timeAttestation: { clockSource: 'server-clock-only', tsa: { status: 'unavailable' }, ots: { status: 'unavailable' } },
+        timeAttestation: {
+          clockSource: 'server-clock-only',
+          tsa: { status: 'unavailable' },
+          ots: { status: 'unavailable' },
+        },
         disclaimer: DISCLAIMER,
       });
     }
 
     if (method === 'POST' && path.includes('/attest/verify')) {
-      const raw = await readBody(req);
+      const raw = await readRawBody(req);
       const body = JSON.parse(raw.toString('utf8') || '{}') as {
         manifest?: unknown; signatureB64u?: string; publicKeyPem?: string;
       };
