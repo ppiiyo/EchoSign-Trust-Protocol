@@ -52,12 +52,7 @@ export interface TranscriptResult {
   language: string;
   languageProbability: number;
   duration: number;
-  segments: Array<{
-    start: number;
-    end: number;
-    text: string;
-    confidence: number;
-  }>;
+  segments: Array<{ start: number; end: number; text: string; confidence: number }>;
 }
 
 export interface BlockchainTransaction {
@@ -79,45 +74,34 @@ export interface MerkleInclusionProof {
   leafHash: string;
   merkleRoot: string;
   proof: MerkleProofStep[];
-  isVerified: boolean;
 }
 
 export interface L2StateAnchor {
-  network: string;
-  blockNumber: number;
-  stateRoot: string;
-  merkleRoot: string;
-  timestamp: number;
-  sequencerSignature: string;
-  rollupTxHash: string;
-  verifiedOnChain: boolean;
+  root: string;
+  blockHeight?: number;
+  chainId?: string;
+  txHash?: string;
+  anchoredAt?: number;
 }
 
 export interface Block {
   index: number;
   timestamp: number;
-  merkleRoot: string;
-  data: {
-    type?: string;
-    transactions?: BlockchainTransaction[];
-    transactionsCount?: number;
-    l2Anchor?: L2StateAnchor;
-    [key: string]: any;
-  };
+  transactions: BlockchainTransaction[];
   previousHash: string;
-  nonce: number;
   hash: string;
+  nonce: number;
+  merkleRoot: string;
 }
 
 export interface ChainStats {
   totalBlocks: number;
-  isValid: boolean;
-  difficulty: number;
   totalTransactions: number;
-  lastBlockHash: string;
-  lastBlockTime: number;
-  lastMerkleRoot: string;
-  activeL2Anchor: L2StateAnchor | null;
+  difficulty: number;
+  lastHash?: string;
+  lastMerkleRoot?: string;
+  activeL2Anchor?: L2StateAnchor;
+  isValid?: boolean;
 }
 
 export interface KMSKeyInfo {
@@ -131,14 +115,12 @@ export interface KMSKeyInfo {
 
 export interface AsyncJobStatus {
   jobId: string;
-  filename: string;
-  status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  status: 'queued' | 'running' | 'completed' | 'failed';
   progress: number;
-  createdAt: number;
-  completedAt?: number;
-  executionTimeMs?: number;
   result?: VerificationResponse;
   error?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface VerificationResponse {
@@ -157,12 +139,12 @@ export interface VerificationResponse {
     channels: number;
     durationSeconds: number;
     sizeMb: number;
-    transcript?: string | null;
-    blockchainTx: string;
+    transcript?: string;
+    blockchainTx?: string;
   };
   liveness: LivenessResult;
   watermark: WatermarkResult;
-  transcript?: TranscriptResult | null;
+  transcript: TranscriptResult;
   blockchain: {
     txId: string;
     blockIndex: number;
@@ -179,45 +161,21 @@ export interface VerificationResponse {
 
 export interface AuditFinding {
   id: string;
+  severity: 'info' | 'low' | 'medium' | 'high' | 'critical';
   title: string;
-  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
-  status: 'RESOLVED' | 'REMEDIATED' | 'OPEN';
-  component: string;
-  description: string;
-  remediationSummary: string;
-  verificationProof: string;
+  detail: string;
 }
 
 export interface AuditSuiteResult {
-  timestamp: string;
-  totalTests: number;
+  suiteId: string;
   passed: number;
   failed: number;
-  passRate: number;
-  executionTimeMs: number;
-  categories: {
-    watermarkRobustness: {
-      score: number;
-      tests: Array<{ name: string; status: 'PASSED' | 'FAILED' | 'WARNING'; metric: string; detail: string }>;
-    };
-    livenessDeepfakeDetection: {
-      score: number;
-      tests: Array<{ name: string; status: 'PASSED' | 'FAILED' | 'WARNING'; metric: string; detail: string }>;
-    };
-    cryptographicIntegrity: {
-      score: number;
-      tests: Array<{ name: string; status: 'PASSED' | 'FAILED' | 'WARNING'; metric: string; detail: string }>;
-    };
-    blockchainSecurity: {
-      score: number;
-      tests: Array<{ name: string; status: 'PASSED' | 'FAILED' | 'WARNING'; metric: string; detail: string }>;
-    };
-  };
   findings: AuditFinding[];
 }
 
 export type AppTab =
   | 'verify'
+  | 'attest'
   | 'diarization'
   | 'watermark'
   | 'developers'
@@ -228,4 +186,3 @@ export type AppTab =
   | 'deployment'
   | 'compliance'
   | 'blockchain';
-

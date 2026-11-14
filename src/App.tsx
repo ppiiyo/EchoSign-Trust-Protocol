@@ -11,19 +11,17 @@ import { EnterpriseDeploymentHub } from './components/EnterpriseDeploymentHub';
 import { ComplianceAuditMatrix } from './components/ComplianceAuditMatrix';
 import { WatermarkStudio } from './components/WatermarkStudio';
 import { BlockchainExplorer } from './components/BlockchainExplorer';
+import { AttestSignPanel } from './components/AttestSignPanel';
 import { AppTab, ChainStats, VerificationResponse } from './types';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<AppTab>('verify');
+  const [activeTab, setActiveTab] = useState<AppTab>('attest');
   const [chainStats, setChainStats] = useState<ChainStats | null>(null);
 
   const fetchChainStats = async () => {
     try {
       const res = await fetch('/api/v1/blockchain/stats');
-      if (res.ok) {
-        const data = await res.json();
-        setChainStats(data);
-      }
+      if (res.ok) setChainStats(await res.json());
     } catch (e) {
       console.warn('Failed to fetch chain stats:', e);
     }
@@ -41,16 +39,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#070a11] text-slate-100 flex flex-col selection:bg-cyan-500 selection:text-white font-sans antialiased">
-      <Navbar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        chainStats={chainStats}
-      />
+      <Navbar activeTab={activeTab} setActiveTab={setActiveTab} chainStats={chainStats} />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {activeTab === 'verify' && (
           <VerificationStudio onVerificationComplete={handleVerificationComplete} />
         )}
+        {activeTab === 'attest' && <AttestSignPanel />}
         {activeTab === 'diarization' && <SpeakerDiarizationStudio />}
         {activeTab === 'developers' && <DeveloperPortal />}
         {activeTab === 'webhooks' && <WebhooksStudio />}
@@ -70,7 +65,7 @@ export default function App() {
       <footer className="border-t border-slate-900 bg-slate-950/80 py-5 text-slate-500 text-xs font-mono">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-slate-400">EchoSign Demo v0.2</span>
+            <span className="font-semibold text-slate-400">EchoSign Demo v0.3</span>
             <span>•</span>
             <span>Concept demo — not a certified product</span>
             <span>•</span>
