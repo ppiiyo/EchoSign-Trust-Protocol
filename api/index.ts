@@ -1,8 +1,7 @@
 /**
- * Minimal Vercel serverless handlers — pure Node, no Express.
- * DEMO pilot: in-memory /tmp keystore + Ed25519 sign.
+ * Minimal Vercel serverless handlers — pure Node crypto, no Express.
  */
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import crypto from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -11,19 +10,15 @@ const DATA = process.env.ATTEST_DATA_DIR || '/tmp/echosign-data';
 const DISCLAIMER =
   'Signature proves integrity of the audio bytes at signing time. It does not prove a human was speaking.';
 
+type Req = IncomingMessage & { url?: string; method?: string; body?: unknown; headers: IncomingMessage['headers'] };
+type Res = ServerResponse & { status: (code: number) => Res; json: (body: unknown) => void };
+
 function ensureData() {
-  try {
-    mkdirSync(DATA, { recursive: true });
-  } catch {
-    /* ignore */
-  }
+  try { mkdirSync(DATA, { recursive: true }); } catch { /* */ }
 }
+function b64u(buf: Buffer) { return buf.toString('base64url'); }
 
-function b64u(buf: Buffer) {
-  return buf.toString('base64url');
-}
-
-function getOrCreateKeyPair(): { privateKey: crypto.KeyObject; publicKeyPem: string; fingerprint: string } {
+function getOrCreateKeyPair() {
   ensureData();
   const privPath = join(DATA, 'org-private.pem');
   const pubPath = join(DATA, 'org-public.pem');
@@ -58,7 +53,7 @@ function sortKeys(value: unknown): unknown {
   return value;
 }
 
-function readBody(req: VercelRequest): Promise<Buffer> {
+function readBody(req: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     req.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
@@ -67,7 +62,6 @@ function readBody(req: VercelRequest): Promise<Buffer> {
   });
 }
 
-/** Multipart: extract first file field as buffer (simple boundary parser). */
 function parseMultipart(buf: Buffer, contentType: string): { file?: Buffer; fields: Record<string, string> } {
   const m = /boundary=(?:="?)([^";]+)/i.exec(contentType);
   if (!m) return { fields: {} };
@@ -85,26 +79,28 @@ function parseMultipart(buf: Buffer, contentType: string): { file?: Buffer; fiel
     const nameMatch = /name="([^"]+)"/i.exec(head);
     const filenameMatch = /filename="([^"]*)"/i.exec(head);
     if (!nameMatch) continue;
-    if (filenameMatch) {
-      file = Buffer.from(body, 'binary');
-    } else {
-      fields[nameMatch[1]] = body.replace(/\r\n$/, '');
-    }
+    if (filenameMatch) file = Buffer.from(body, 'binary');
+    else fields[nameMatch[1]] = body.replace(/\r\n$/, '');
   }
   return { file, fields };
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+function sendJson(res: ServerResponse, code: number, body: unknown) {
+  const payload = JSON.stringify(body);
+  res.statusCode = code;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(payload);
+}
+
+export default async function handler(req: Req, res: ServerResponse) {
   try {
     const url = req.url || '/';
-    const pathOnly = url.split('?')[0] || '/';
+    const path = (url.split('?')[0] || '/').replace(/\/+$/, '') || '/';
+    const method = (req.method || 'GET').toUpperCase();
 
-    // Normalize paths that Vercel may pass as /api or /api/v1/...
-    const path = pathOnly.replace(/\/+$/, '') || '/';
-
-    if (req.method === 'GET' && (path === '/health' || path === '/api' || path === '/api/health')) {
+    if (method === 'GET' && (path === '/health' || path === '/api' || path === '/api/health')) {
       const { fingerprint } = getOrCreateKeyPair();
-      return res.status(200).json({
+      return sendJson(res, 200, {
         status: 'ok',
         product: 'echosign-attest',
         version: '1.0.0-rc.1',
@@ -116,30 +112,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    if (req.method === 'POST' && (path.endsWith('/api/v1/keys') || path.endsWith('/v1/keys'))) {
+    if (method === 'POST' && (path.endsWith('/api/v1/keys') || path.endsWith('/v1/keys'))) {
       const secret = 'esk_live_' + b64u(crypto.randomBytes(24));
-      return res.status(201).json({
-        id: 'key_demo',
-        name: 'ui-panel',
-        secret,
-        warning: 'Demo key — stored only for this session message.',
-      });
+      return sendJson(res, 201, { id: 'key_demo', name: 'ui-panel', secret, warning: 'Demo key.' });
     }
 
-    if (req.method === 'POST' && (path.includes('/attest/sign') || path.endsWith('/sign'))) {
+    if (method === 'POST' && (path.includes('/attest/sign') || path.endsWith('/sign'))) {
       const ct = String(req.headers['content-type'] || '');
       let audio: Buffer | undefined;
       if (ct.includes('multipart/form-data')) {
         const raw = await readBody(req);
-        const parsed = parseMultipart(raw, ct);
-        audio = parsed.file;
-      } else if (req.body && Buffer.isBuffer(req.body)) {
-        audio = req.body;
+        audio = parseMultipart(raw, ct).file;
       }
       if (!audio || audio.length === 0) {
-        return res.status(400).json({ error: 'Missing audio file in multipart field "file"' });
+        return sendJson(res, 400, { error: 'Missing audio file in multipart field "file"' });
       }
-
       const contentHash = crypto.createHash('sha256').update(audio).digest('hex');
       const now = new Date().toISOString();
       const { privateKey, publicKeyPem, fingerprint } = getOrCreateKeyPair();
@@ -153,52 +140,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const canonical = Buffer.from(canonicalJson(manifest), 'utf8');
       const signature = crypto.sign(null, canonical, privateKey);
       const packageId = 'pkg_' + crypto.randomBytes(8).toString('hex');
-
-      return res.status(200).json({
+      return sendJson(res, 200, {
         packageId,
         manifest,
         signatureB64u: b64u(signature),
         publicKeyPem,
         keyFingerprint: fingerprint,
         contentHash,
-        timeAttestation: {
-          clockSource: 'server-clock-only',
-          tsa: { status: 'unavailable' },
-          ots: { status: 'unavailable' },
-        },
+        timeAttestation: { clockSource: 'server-clock-only', tsa: { status: 'unavailable' }, ots: { status: 'unavailable' } },
         disclaimer: DISCLAIMER,
       });
     }
 
-    if (req.method === 'POST' && path.includes('/attest/verify')) {
-      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-      const { manifest, signatureB64u, publicKeyPem } = body as {
-        manifest?: unknown;
-        signatureB64u?: string;
-        publicKeyPem?: string;
+    if (method === 'POST' && path.includes('/attest/verify')) {
+      const raw = await readBody(req);
+      const body = JSON.parse(raw.toString('utf8') || '{}') as {
+        manifest?: unknown; signatureB64u?: string; publicKeyPem?: string;
       };
-      if (!manifest || !signatureB64u || !publicKeyPem) {
-        return res.status(400).json({ error: 'manifest, signatureB64u, publicKeyPem required' });
+      if (!body.manifest || !body.signatureB64u || !body.publicKeyPem) {
+        return sendJson(res, 400, { error: 'manifest, signatureB64u, publicKeyPem required' });
       }
-      const canonical = Buffer.from(canonicalJson(manifest), 'utf8');
-      const sig = Buffer.from(signatureB64u, 'base64url');
-      const pub = crypto.createPublicKey(publicKeyPem);
+      const canonical = Buffer.from(canonicalJson(body.manifest), 'utf8');
+      const sig = Buffer.from(body.signatureB64u, 'base64url');
+      const pub = crypto.createPublicKey(body.publicKeyPem);
       const valid = crypto.verify(null, canonical, pub, sig);
-      return res.status(200).json({ valid, disclaimer: DISCLAIMER });
+      return sendJson(res, 200, { valid, disclaimer: DISCLAIMER });
     }
 
-    if (req.method === 'GET' && path.includes('/jwks')) {
+    if (method === 'GET' && path.includes('/jwks')) {
       const { publicKeyPem, fingerprint } = getOrCreateKeyPair();
-      return res.status(200).json({
-        keys: [{ kty: 'OKP', crv: 'Ed25519', use: 'sig', kid: fingerprint, x: 'see-pem', pem: publicKeyPem }],
+      return sendJson(res, 200, {
+        keys: [{ kty: 'OKP', crv: 'Ed25519', use: 'sig', kid: fingerprint, pem: publicKeyPem }],
       });
     }
 
-    return res.status(404).json({ error: 'Not found', path });
+    return sendJson(res, 404, { error: 'Not found', path });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({
-      error: err instanceof Error ? err.message : String(err),
-    });
+    return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
   }
 }
