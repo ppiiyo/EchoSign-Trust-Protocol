@@ -7,8 +7,28 @@ export class KeyManagementService {
   private keyRing: Map<string, { key: Buffer; info: KMSKeyInfo }> = new Map();
   private activeKeyIds: Record<string, string> = {};
 
-  constructor(masterSecret: string = process.env.SECRET_KEY || 'echosign_master_protocol_root_key_2026_v4') {
-    this.masterRootKey = crypto.createHash('sha256').update(masterSecret).digest();
+  constructor(masterSecret?: string) {
+    const secret =
+      masterSecret ||
+      process.env.KMS_MASTER_KEY ||
+      process.env.SECRET_KEY;
+
+    if (!secret || secret.length < 16) {
+      // Fail-fast: never ship with a hardcoded default master key.
+      // In pure demo mode you may set DEMO_MODE=1 to allow an ephemeral in-memory key.
+      if (process.env.DEMO_MODE === '1' || process.env.NODE_ENV !== 'production') {
+        console.warn(
+          '[KMS] KMS_MASTER_KEY not set \u2014 using ephemeral demo key (data will not survive restarts). Set KMS_MASTER_KEY for persistent demos.'
+        );
+        this.masterRootKey = crypto.randomBytes(32);
+      } else {
+        throw new Error(
+          'KMS_MASTER_KEY (or SECRET_KEY) environment variable is required and must be at least 16 characters. Refusing to start with a default secret.'
+        );
+      }
+    } else {
+      this.masterRootKey = crypto.createHash('sha256').update(secret).digest();
+    }
     this.initializeKeyRing();
   }
 
@@ -45,7 +65,6 @@ export class KeyManagementService {
     this.currentEpoch += 1;
     const rotatedKeys: string[] = [];
 
-    // Mark previous as ROTATED
     for (const [id, entry] of this.keyRing.entries()) {
       if (entry.info.status === 'ACTIVE') {
         entry.info.status = 'ROTATED';
@@ -78,103 +97,47 @@ export class KeyManagementService {
     return {
       epoch: this.currentEpoch,
       rotatedKeys,
-      message: `KMS successfully rotated to epoch ${this.currentEpoch}. Reason: ${reason}`
+      message: `Rotated to epoch ${this.currentEpoch}: ${reason}`
     };
   }
 
-  public getActiveKey(purpose: KMSKeyInfo['purpose']): { keyId: string; key: Buffer } {
+  public getActiveKey(purpose: KMSKeyInfo['purpose']): { keyId: string; key: Buffer; info: KMSKeyInfo } {
     const keyId = this.activeKeyIds[purpose];
+    if (!keyId) throw new Error(`No active key for purpose ${purpose}`);
     const entry = this.keyRing.get(keyId);
-    if (!entry) throw new Error(`Active key not found for purpose: ${purpose}`);
-    return { keyId, key: entry.key };
+    if (!entry) throw new Error(`Key ring missing entry ${keyId}`);
+    return { keyId, key: entry.key, info: entry.info };
   }
 
-  public getKeyById(keyId: string): Buffer | null {
+  public hmacSign(purpose: KMSKeyInfo['purpose'], data: Buffer | string): string {
+    const { key, keyId } = this.getActiveKey(purpose);
+    const h = crypto.createHmac('sha256', key);
+    h.update(typeof data === 'string' ? data : data);
+    return `${keyId}.${h.digest('hex')}`;
+  }
+
+  public hmacVerify(purpose: KMSKeyInfo['purpose'], data: Buffer | string, signature: string): boolean {
+    const parts = signature.split('.');
+    if (parts.length !== 2) return false;
+    const [keyId, expectedHex] = parts;
     const entry = this.keyRing.get(keyId);
-    return entry ? entry.key : null;
-  }
-
-  public getKeyRingStatus(): KMSKeyInfo[] {
-    return Array.from(this.keyRing.values()).map(v => v.info);
-  }
-
-  // SHA256 utilities
-  public sha256(data: Buffer | string): string {
-    return crypto.createHash('sha256').update(data).digest('hex');
-  }
-
-  public sha256Hex(data: any): string {
-    const serialized = typeof data === 'string' ? data : JSON.stringify(data);
-    return crypto.createHash('sha256').update(serialized).digest('hex');
-  }
-
-  // HMAC signing with active Watermark key
-  public hmacSign(message: string): string {
-    const { key } = this.getActiveKey('WATERMARK_HMAC');
-    return crypto.createHmac('sha256', key).update(message).digest('hex');
-  }
-
-  public hmacVerify(message: string, signature: string): boolean {
-    // Try with active key first, then backwards compatible with rotated keys
-    for (const entry of this.keyRing.values()) {
-      if (entry.info.purpose === 'WATERMARK_HMAC') {
-        const expected = crypto.createHmac('sha256', entry.key).update(message).digest('hex');
-        try {
-          if (crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(signature, 'hex'))) {
-            return true;
-          }
-        } catch {
-          // ignore length mismatch
-        }
-      }
+    if (!entry) return false;
+    const h = crypto.createHmac('sha256', entry.key);
+    h.update(typeof data === 'string' ? data : data);
+    const actual = h.digest('hex');
+    try {
+      return crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expectedHex, 'hex'));
+    } catch {
+      return false;
     }
-    return false;
   }
 
-  // Authenticated AES-256-GCM Encryption with Random 96-bit IV and 128-bit Auth Tag
-  public encryptGCM(plainText: string): string {
-    const { keyId, key } = this.getActiveKey('DATA_ENCRYPTION_GCM');
-    const iv = crypto.randomBytes(12); // 96-bit IV recommended for GCM
-    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-    let encrypted = cipher.update(plainText, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    const authTag = cipher.getAuthTag();
-    return `${keyId}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
-  }
-
-  public decryptGCM(cipherText: string): string {
-    const parts = cipherText.split(':');
-    if (parts.length !== 4) throw new Error('Invalid GCM ciphertext format (expected keyId:iv:authTag:payload)');
-    const [keyId, ivHex, authTagHex, encryptedHex] = parts;
-    const key = this.getKeyById(keyId);
-    if (!key) throw new Error(`KMS key ${keyId} not found in key ring`);
-
-    const iv = Buffer.from(ivHex, 'hex');
-    const authTag = Buffer.from(authTagHex, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(authTag);
-    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  }
-
-  // Backward compatibility alias for legacy AES-CBC if needed
-  public encrypt(plainText: string): string {
-    return this.encryptGCM(plainText);
-  }
-
-  public decrypt(cipherText: string): string {
-    if (cipherText.split(':').length === 4) {
-      return this.decryptGCM(cipherText);
-    }
-    // Legacy fallback
-    const { key } = this.getActiveKey('DATA_ENCRYPTION_GCM');
-    const parts = cipherText.split(':');
-    const iv = Buffer.from(parts[0], 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-    let decrypted = decipher.update(parts[1], 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+  public getStatus(): { epoch: number; activeKeys: Record<string, string>; keyCount: number } {
+    return {
+      epoch: this.currentEpoch,
+      activeKeys: { ...this.activeKeyIds },
+      keyCount: this.keyRing.size
+    };
   }
 }
 
