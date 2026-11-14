@@ -15,6 +15,19 @@ interface SignResponse {
   verifyUrl?: string;
 }
 
+async function parseJsonResponse(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text();
+  try {
+    return text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  } catch {
+    throw new Error(
+      res.status >= 500
+        ? `API unavailable (HTTP ${res.status}). Serverless backend error — try again or use local demo.`
+        : `Invalid API response (HTTP ${res.status})`
+    );
+  }
+}
+
 export const AttestSignPanel: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -46,9 +59,9 @@ export const AttestSignPanel: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'ui-panel' }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      if (data.secret) setApiKey(data.secret);
+      const data = await parseJsonResponse(res);
+      if (!res.ok) throw new Error(String(data.error || `HTTP ${res.status}`));
+      if (typeof data.secret === 'string') setApiKey(data.secret);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Key create failed');
     }
@@ -63,12 +76,13 @@ export const AttestSignPanel: React.FC = () => {
       const form = new FormData();
       form.append('file', file);
       form.append('deviceId', 'ui_browser');
+      form.append('offline', '1');
       const headers: Record<string, string> = {};
       if (apiKey.trim()) headers.Authorization = `Bearer ${apiKey.trim()}`;
       const res = await fetch('/api/v1/attest/sign', { method: 'POST', headers, body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      setResult(data as SignResponse);
+      const data = await parseJsonResponse(res);
+      if (!res.ok) throw new Error(String(data.error || `HTTP ${res.status}`));
+      setResult(data as unknown as SignResponse);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign failed');
     } finally {
