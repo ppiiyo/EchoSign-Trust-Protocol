@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EchoSign Offline Verifier</title>
+  <style>
+    :root {
+      --bg: #070a11; --card: #0f1419; --border: #1e293b; --text: #e2e8f0;
+      --muted: #94a3b8; --ok: #34d399; --fail: #f87171; --accent: #22d3ee;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+      display: flex; flex-direction: column; align-items: center;
+      padding: 2rem 1rem;
+    }
+    h1 { font-size: 1.35rem; margin: 0 0 0.25rem; }
+    .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; max-width: 36rem; text-align: center; }
+    .banner {
+      background: #422006; border: 1px solid #a16207; color: #fde68a;
+      padding: 0.6rem 1rem; border-radius: 0.5rem; font-size: 0.8rem;
+      max-width: 36rem; margin-bottom: 1.5rem; text-align: center;
+    }
+    .drop {
+      width: min(36rem, 100%);
+      border: 2px dashed var(--border);
+      border-radius: 1rem;
+      padding: 2rem 1.25rem;
+      text-align: center;
+      background: var(--card);
+      cursor: pointer;
+    }
+    .drop.dragover { border-color: var(--accent); background: #0c1924; }
+    .drop p { margin: 0.35rem 0; color: var(--muted); font-size: 0.9rem; }
+    input[type=file] { display: none; }
+    .files { width: min(36rem, 100%); margin-top: 1rem; font-size: 0.8rem; color: var(--muted); }
+    button#run {
+      margin-top: 1.25rem; padding: 0.65rem 1.4rem;
+      border: none; border-radius: 0.6rem;
+      background: linear-gradient(135deg, #06b6d4, #2563eb);
+      color: white; font-weight: 600; font-size: 0.9rem; cursor: pointer;
+    }
+    button#run:disabled { opacity: 0.4; cursor: not-allowed; }
+    #result {
+      width: min(36rem, 100%); margin-top: 1.5rem; padding: 1rem 1.25rem;
+      border-radius: 0.75rem; border: 1px solid var(--border);
+      background: var(--card); font-family: ui-monospace, monospace;
+      font-size: 0.8rem; white-space: pre-wrap; display: none;
+    }
+    #result.ok { border-color: #065f46; }
+    #result.fail { border-color: #7f1d1d; }
+    footer { margin-top: auto; padding-top: 2rem; font-size: 0.75rem; color: var(--muted); }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <h1>EchoSign Offline Verifier</h1>
+  <p class="sub">
+    Verify an Attest proof bundle entirely in your browser.
+    Nothing is uploaded — files never leave this device.
+  </p>
+  <div class="banner">
+    Proves cryptographic integrity of the signed manifest only.
+    Does <strong>not</strong> prove a human was speaking or that content is true.
+  </div>
+
+  <div class="drop" id="drop" tabindex="0">
+    <p><strong>Drop files here</strong> or click to select</p>
+    <p>Need: <code>manifest.json</code> + <code>signature.b64u</code> + <code>public.pem</code></p>
+    <p style="font-size:0.75rem">Optional: audio file to check contentHash</p>
+    <input type="file" id="fileInput" multiple />
+  </div>
+
+  <ul class="files" id="fileList"></ul>
+  <button id="run" disabled>Verify offline</button>
+  <div id="result"></div>
+
+  <footer>
+    <a href="/">← Back</a> ·
+    <a href="https://github.com/ppiiyo/EchoSign-Trust-Protocol/blob/main/docs/THREAT_MODEL.md">Threat model</a> ·
+    Pure Web Crypto · no network after page load
+  </footer>
+
+  <script type="module">
+    const drop = document.getElementById('drop');
+    const fileInput = document.getElementById('fileInput');
+    const fileList = document.getElementById('fileList');
+    const runBtn = document.getElementById('run');
+    const resultEl = document.getElementById('result');
+    const files = new Map();
+
+    function classify(name) {
+      const n = name.toLowerCase();
+      if (n.endsWith('.pem') || n.includes('public')) return 'public';
+      if (n.includes('signature') || n.endsWith('.b64u') || n.endsWith('.sig')) return 'signature';
+      if (n.includes('manifest') || n.endsWith('.json')) return 'manifest';
+      if (n.endsWith('.wav') || n.endsWith('.bin') || n.includes('audio')) return 'audio';
+      return null;
+    }
+
+    function refreshList() {
+      fileList.innerHTML = '';
+      for (const [role, f] of files) {
+        const li = document.createElement('li');
+        li.textContent = role + ': ' + f.name + ' (' + f.size + ' B)';
+        fileList.appendChild(li);
+      }
+      runBtn.disabled = !(files.has('manifest') && files.has('signature') && files.has('public'));
+    }
+
+    function addFiles(list) {
+      for (const f of list) {
+        let role = classify(f.name);
+        if (!role && f.name.endsWith('.json')) role = 'manifest';
+        if (!role && f.name.endsWith('.pem')) role = 'public';
+        if (role) files.set(role, f);
+      }
+      refreshList();
+    }
+
+    drop.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => addFiles(fileInput.files));
+    drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('dragover'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      drop.classList.remove('dragover');
+      addFiles(e.dataTransfer.files);
+    });
+
+    function sortKeys(value) {
+      if (Array.isArray(value)) return value.map(sortKeys);
+      if (value !== null && typeof value === 'object') {
+        const sorted = {};
+        for (const k of Object.keys(value).sort()) sorted[k] = sortKeys(value[k]);
+        return sorted;
+      }
+      return value;
+    }
+    function canonicalJson(obj) { return JSON.stringify(sortKeys(obj)); }
+
+    function pemToSpki(pem) {
+      const b64 = pem.replace(/-----BEGIN PUBLIC KEY-----/, '')
+        .replace(/-----END PUBLIC KEY-----/, '').replace(/\s+/g, '');
+      const raw = atob(b64);
+      const buf = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+      return buf.buffer;
+    }
+
+    function b64urlToBytes(s) {
+      const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+      const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+      const raw = atob(b64 + pad);
+      const buf = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+      return buf;
+    }
+
+    async function sha256Hex(data) {
+      const hash = await crypto.subtle.digest('SHA-256', data);
+      return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    runBtn.addEventListener('click', async () => {
+      resultEl.style.display = 'block';
+      resultEl.className = '';
+      resultEl.textContent = 'Verifying…';
+      try {
+        const manifest = JSON.parse(await files.get('manifest').text());
+        const sigText = (await files.get('signature').text()).trim();
+        const pubPem = await files.get('public').text();
+        const canonical = canonicalJson(manifest);
+        const canonicalBytes = new TextEncoder().encode(canonical);
+        const contentHash = await sha256Hex(canonicalBytes);
+
+        const key = await crypto.subtle.importKey(
+          'spki', pemToSpki(pubPem),
+          { name: 'Ed25519' }, false, ['verify']
+        );
+        const valid = await crypto.subtle.verify(
+          'Ed25519', key, b64urlToBytes(sigText), canonicalBytes
+        );
+
+        let audioLine = '';
+        if (files.has('audio') && manifest.contentHash) {
+          const audioHash = await sha256Hex(await files.get('audio').arrayBuffer());
+          audioLine = '\nAudio match: ' + (audioHash === manifest.contentHash ? 'YES' : 'NO');
+        }
+
+        resultEl.textContent = [
+          valid ? 'STATUS: VALID' : 'STATUS: INVALID',
+          '',
+          'Manifest hash   : ' + contentHash,
+          'Key fingerprint : ' + (manifest.signer?.keyFingerprint || '(none)'),
+          'Capture         : ' + (manifest.capture?.startedAt || '?') + ' → ' + (manifest.capture?.endedAt || '?'),
+          audioLine,
+          '',
+          'Checked with Web Crypto only. No data left this device.',
+        ].filter(Boolean).join('\n');
+        resultEl.classList.add(valid ? 'ok' : 'fail');
+      } catch (err) {
+        resultEl.textContent = 'ERROR: ' + (err.message || String(err));
+        resultEl.classList.add('fail');
+      }
+    });
+  </script>
+</body>
+</html>
