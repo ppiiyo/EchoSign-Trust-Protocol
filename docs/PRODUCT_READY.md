@@ -1,11 +1,14 @@
-# Product-ready tracker — 1.0.0-rc.1
+# Product-ready · v1.0.0-rc.1
 
-| Area | Status |
+| Claim | Evidence |
 | --- | --- |
-| WP-1…WP-6 | done |
-| Real QR in report (`tmp-report/qr.svg`) | done |
-| CLI verify + browser `/verify/` | done |
-| CHANGELOG + PILOT_KIT | done |
-| Tag `v1.0.0-rc.1` | ready to tag after manual gates |
+| Ed25519 integrity | attest-crypto, verify-bundle, /verify/ |
+| Loud-fail keystore | EncryptedKeystore selftest |
+| Honest TSA/OTS | attachTimeAttestation |
+| Merkle log | transparency-log + API |
+| File/Postgres | persistence, migrations, compose |
+| Security guards | assertSafeRuntime, rate limit |
+| Report + real QR | report-integrity → qr.svg |
+| Docs EN/RU/ZH | README*.md aligned claims |
 
-Manual gates before final v1.0.0: 3 external demos, legal claim review, basic pentest.
+Manual gates before final v1.0.0: 3 external demos · legal claim review · basic pentest.

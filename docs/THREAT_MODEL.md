@@ -1,65 +1,35 @@
 # EchoSign Threat Model & Claims Boundary
 
-**Status:** Public document (E1-1)  
-**Audience:** Integrators, security reviewers, prospective pilot customers  
-**Last updated:** 2026-11-14
+**Status:** Public · v1.0.0-rc.1 · Updated 2026-11-14
 
----
+## 1. Claims
 
-## 1. What we claim to prove
+| Property | Strength |
+| --- | --- |
+| Integrity (contentHash + Ed25519) | Strong |
+| Existence at time T (TSA / OTS / server clock) | Strong with TSA/OTS; weak server-clock-only |
+| Authorship = key control | Strong if key hygiene holds |
+| Internal chain-of-custody (Merkle log) | Medium (host integrity) |
 
-EchoSign (Attest path) is designed to provide **cryptographic evidence of**:
+## 2. Non-claims
 
-| Property | Meaning | Strength |
-| :--- | :--- | :--- |
-| **Integrity** | The audio bytes have not been modified after the moment of signing | Strong (Ed25519 + content hash) |
-| **Existence at time T** | A particular content hash was known to the system (or a public TSA / OpenTimestamps calendar) at or before time T | Strong when TSA / OTS is used; weaker with only server clock |
-| **Authorship / key control** | The signature was produced by a private key that was under the control of a registered device or organisation at signing time | Strong if key hygiene and device registration are correct |
-| **Chain of custody (system-internal)** | Who/what touched the record inside *this* system after ingest (audit log) | Medium \u2013 depends on server integrity |
+Deepfake / human-vs-AI detection; codec watermarks; SIP product path; GOST/ISO 17025/ISO 27001/SOC 2; court seal without independent process.
 
-These properties are **tamper-evident** and can be verified offline by a third party who possesses only the public keys and the proof bundle.
+## 3. Verification levels 1–4
 
----
+1. Ed25519(canonical manifest) — `/verify/`, `verify-bundle.mjs`
+2. + TSA structural imprint — full PKI via `openssl ts -verify`
+3. + OTS proof present — `bitcoin-confirmed` only after external `ots verify`
+4. + Merkle inclusion vs **published** root — `/api/v1/log/proof/:i`
 
-## 2. What we explicitly do **not** claim
+## 4. Trust boundaries
 
-| Non-claim | Why |
-| :--- | :--- |
-| "This is a living human, not AI" | Browser / microphone capture has no TEE. A sophisticated adversary can feed synthetic audio into the capture pipeline. Server-side telephony ingest is stronger but still not a human-liveness oracle. |
-| Court-admissible expertise / \u0413\u041e\u0421\u0422 / ISO 17025 / SOC 2 certification | No formal certification exists. Marketing language has been removed from the demo UI. |
-| Codec-robust watermarking | Current watermark is experimental and labelled as such. |
-| Real-time SIP/RTP deepfake interception | Telephony UI is a simulation in the current codebase. |
-| Perfect detection of all deepfakes | Any heuristic score is uncalibrated. |
+Org key + KMS_MASTER_KEY; allowlisted TSA/OTS hosts; published log roots out-of-band; DEMO_MODE is not production.
 
----
+## 5. In-scope threats
 
-## 3. Trust boundaries
+Post-sign tamper; forged package; swapped TSA token; rewritten log without published root; SSRF to private ranges.
 
-Capture environment (browser / softphone / ATC) \u2192 Signing service (Ed25519 + TSA/OTS + Merkle log) \u2192 Independent verifier (offline).
+## 6. Out of scope (RC)
 
-**Stronger path:** server-side ingest from PBX.  
-**Weaker path:** browser SDK \u2014 attests only that the exact byte sequence was presented to the signing service at time T.
-
----
-
-## 4. Key threats & mitigations (MVP)
-
-| Threat | Mitigation |
-| :--- | :--- |
-| Compromise of device private key | Short-lived keys, CRL-lite, org root rotation |
-| Server clock manipulation | RFC 3161 TSA + OpenTimestamps; surface all three timestamps |
-| SSRF via webhooks | Private-IP block + allowlist |
-| Expectation mismatch (signed \u21d2 human) | This document + honest wording in every report |
-
----
-
-## 5. Verification levels
-
-1. Offline signature + hash check
-2. TSA / OpenTimestamps validation
-3. Merkle inclusion + consistency proof
-4. Key status (not revoked at claimed time)
-
-Anything beyond these (liveness, speaker identity) is outside the cryptographic guarantee.
-
-See full local copy in the repository for complete tables and architecture diagram notes.
+Compromise of public TSA/OTS; physical key extraction; social engineering; ML content authenticity.

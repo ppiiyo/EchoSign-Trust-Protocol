@@ -1,24 +1,19 @@
-# EchoSign Attest
+# EchoSign Attest · v1.0.0-rc.1
 
-> **音频完整性与来源证明**（密码学认证）。
-> **不是**经认证的深度伪造检测器，也**不是**司法鉴定报告。
+**音频完整性与来源的密码学证明** — 不是深伪检测器。
 
-[English](README.md) · [Русский](README.ru.md) · [Threat model](docs/THREAT_MODEL.md)
+| | |
+| --- | --- |
+| **证明** | 签名后完整性 · 时间存在性（TSA/OTS）· 私钥控制 · 系统内保管链 |
+| **不证明** | 真人 vs AI · 深伪检测 · 法庭认证 · GOST/ISO 17025/SOC 2 |
 
-## 我们证明什么
-
-1. 签名后的字节完整性（Ed25519）
-2. 在时间 T 的存在性（TSA / OpenTimestamps — 演进中）
-3. 署名 = 私钥控制权
-4. 系统内证明包保管链
-
-**不声明：**「真人 vs AI」、行业认证、电话网关、司法鉴定。
-
-## 快速开始
+分支 `product-ready` · 标签 `v1.0.0-rc.1` · [威胁模型](docs/THREAT_MODEL.md) · [试点](docs/PILOT_KIT.md)
 
 ```bash
-cp .env.example .env
-npm install && npm test && npm run dev
+git checkout product-ready && npm install
+node scripts/demo-sign-verify.mjs
+node scripts/report-integrity.mjs tmp-demo/sample.esatt.json --out tmp-report
+DEMO_MODE=1 ATTEST_OFFLINE=1 npm run dev
 ```
 
-MIT
+验证级别 1–4：签名 → TSA → OTS → Merkle。MIT。仅 RC。

@@ -1,55 +1,48 @@
-# EchoSign Attest (MVP v0.3)
+# EchoSign Attest · v1.0.0-rc.1
 
-> **Concept product for audio integrity / provenance.** Not a certified deepfake detector.
+**Cryptographic audio integrity and provenance** — not a deepfake detector.
 
-Cryptographic path: **capture → Ed25519 sign → store proof package → offline verify**.
+```text
+ingest → Ed25519 sign (canonical manifest) → proof package → offline verify
+         └─ optional RFC 3161 TSA / OpenTimestamps
+         └─ append-only Merkle transparency log
+```
 
-[Threat model](docs/THREAT_MODEL.md) · [API](docs/API.md) · [MVP scope](docs/MVP.md)
+| | |
+| --- | --- |
+| **Proves** | Integrity of bytes after signing · existence in time (TSA/OTS) · control of signing key · internal chain-of-custody |
+| **Does not prove** | Human vs AI · deepfake detection · courtroom certification · GOST/ISO 17025/SOC 2 |
 
-## Quick start (team)
+Branch: [`product-ready`](https://github.com/ppiiyo/EchoSign-Trust-Protocol/tree/product-ready) · Tag: `v1.0.0-rc.1`  
+Docs: [Threat model](docs/THREAT_MODEL.md) · [API](docs/API.md) · [Storage](docs/STORAGE.md) · [Verify](docs/VERIFY.md) · [Pilot kit](docs/PILOT_KIT.md) · [Changelog](CHANGELOG.md)
+
+## Quick start
 
 ```bash
 git clone https://github.com/ppiiyo/EchoSign-Trust-Protocol.git
-cd EchoSign-Trust-Protocol
-cp .env.example .env          # DEMO_MODE=1
-npm install
+cd EchoSign-Trust-Protocol && git checkout product-ready
+cp .env.example .env && npm install
 
-# Pure crypto (no server)
-node scripts/selftest-store.mjs
 node scripts/demo-sign-verify.mjs
+node scripts/verify-bundle.mjs tmp-demo/sample.esatt.json
+node scripts/report-integrity.mjs tmp-demo/sample.esatt.json --out tmp-report
+# → tmp-report/qr.svg (real QR)
 
-# Unit tests
-npm test
-
-# Run API + UI
-npm run dev
-# → http://localhost:3000
-# → http://localhost:3000/verify/
-
-# API smoke (second terminal)
-node scripts/smoke-mvp.mjs
+DEMO_MODE=1 ATTEST_OFFLINE=1 npm run dev
+# http://localhost:3000  ·  /verify/
 ```
 
-Or: `make mvp` then `make dev` / `make smoke`.
+Production refuses start if `NODE_ENV=production` + `DEMO_MODE=1`, or missing `KMS_MASTER_KEY`.
 
-## What works today
+## Verification levels
 
-| Feature | Path |
+| Level | Checked |
 | --- | --- |
-| Ed25519 sign/verify | `server/services/attest.ts`, `packages/attest-crypto` |
-| API keys + devices + packages | `server/mvp-routes.ts`, `server/services/store.ts` |
-| Offline browser verify | `/verify/` |
-| CLI verify | `scripts/verify-independent.mjs` |
-| Honest claims | README, footer, health, threat model |
-
-## API sketch
-
-```bash
-curl -s -X POST localhost:3000/api/v1/keys -H 'Content-Type: application/json' -d '{"name":"dev"}'
-curl -s -F file=@rec.wav localhost:3000/api/v1/attest/sign
-curl -s localhost:3000/api/v1/attest/jwks
-```
+| 1 | Ed25519 over canonical manifest |
+| 2 | + structural TSA imprint |
+| 3 | + OTS proof (`pending-calendar` until `ots verify`) |
+| 4 | + Merkle inclusion vs published root |
 
 ## License
 
-MIT
+MIT. **Release candidate** — final v1.0.0 needs external demos, legal claim review, basic pentest.
