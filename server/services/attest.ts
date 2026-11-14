@@ -7,15 +7,17 @@ import crypto from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  canonicalJson,
   createManifestV1,
   signManifest,
   verifyManifest,
   type ManifestV1,
   EncryptedKeystore,
-  canonicalJson,
+  attachTimeAttestation,
+  type TimeAttestation,
 } from '../../packages/attest-crypto/src/index.ts';
 
-export type { ManifestV1 };
+export type { ManifestV1, TimeAttestation };
 
 export interface AttestSignResult {
   manifest: ManifestV1;
@@ -23,6 +25,7 @@ export interface AttestSignResult {
   publicKeyPem: string;
   keyFingerprint: string;
   contentHash: string;
+  timeAttestation?: TimeAttestation;
 }
 
 let keystore: EncryptedKeystore | null = null;
@@ -117,6 +120,18 @@ export function attestSignAudio(params: {
     keyFingerprint: org.fingerprint,
     contentHash: signed.contentHash,
   };
+}
+
+/** Sign + attach TSA/OTS (degrades honestly when offline/unavailable). */
+export async function attestSignAudioWithTime(
+  params: Parameters<typeof attestSignAudio>[0] & { offline?: boolean }
+): Promise<AttestSignResult> {
+  const base = attestSignAudio(params);
+  const canonical = canonicalJson(base.manifest);
+  const timeAttestation = await attachTimeAttestation(canonical, {
+    offline: params.offline,
+  });
+  return { ...base, timeAttestation };
 }
 
 export function attestVerify(params: {
