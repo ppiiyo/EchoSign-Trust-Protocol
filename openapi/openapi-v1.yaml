@@ -1,0 +1,45 @@
+openapi: 3.1.0
+info:
+  title: EchoSign Attest API
+  version: 0.5.0
+  description: Cryptographic audio integrity and provenance. Not deepfake detection.
+  license: { name: MIT }
+servers:
+  - url: /
+paths:
+  /health:
+    get:
+      summary: Liveness
+      responses: { '200': { description: OK } }
+  /api/v1/attest/sign:
+    post:
+      summary: Sign audio + log leaf
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                offline: { type: string }
+      responses: { '201': { description: Signed package } }
+  /api/v1/attest/verify:
+    post:
+      summary: Verify signature
+      responses: { '200': { description: Valid }, '400': { description: Invalid } }
+  /api/v1/log/root:
+    get:
+      summary: Merkle roots
+      responses: { '200': { description: Roots } }
+  /api/v1/openapi.json:
+    get:
+      summary: OpenAPI document (YAML body)
+      responses: { '200': { description: Spec } }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer

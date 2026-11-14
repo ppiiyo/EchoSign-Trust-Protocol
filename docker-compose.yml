@@ -1,39 +1,44 @@
-version: '3.8'
-
 services:
-  echosign-app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: echosign/voice-inspector:v4.1.0
-    container_name: echosign-inspector
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
+  postgres:
+    image: postgres:16-alpine
     environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - KMS_MASTER_KEY=${KMS_MASTER_KEY:-echosign_default_production_master_key_2026}
-      - WEBHOOK_TIMEOUT_MS=5000
-      - SIP_STREAM_CONCURRENCY=50
+      POSTGRES_USER: echosign
+      POSTGRES_PASSWORD: echosign
+      POSTGRES_DB: echosign
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/v1/blockchain/stats"]
-      interval: 30s
+      test: ["CMD-SHELL", "pg_isready -U echosign -d echosign"]
+      interval: 5s
       timeout: 5s
-      retries: 3
-      start_period: 10s
-    resources:
-      limits:
-        cpus: '2.0'
-        memory: 2048M
-      reservations:
-        cpus: '0.5'
-        memory: 512M
-    security_opt:
-      - no-new-privileges:true
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      retries: 10
+  app:
+    build: { context: ., dockerfile: Dockerfile }
+    image: echosign/attest:0.5.0
+    ports: ["3000:3000"]
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DEMO_MODE: ${DEMO_MODE:-0}
+      DATABASE_URL: postgres://echosign:echosign@postgres:5432/echosign
+      KMS_MASTER_KEY: ${KMS_MASTER_KEY:?set KMS_MASTER_KEY in .env}
+      ATTEST_OFFLINE: ${ATTEST_OFFLINE:-0}
+      BOOTSTRAP_SECRET: ${BOOTSTRAP_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    volumes:
+      - appdata:/app/data
+    restart: unless-stopped
+volumes:
+  pgdata:
+  appdata:
