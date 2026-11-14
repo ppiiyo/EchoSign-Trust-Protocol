@@ -1,10 +1,11 @@
 /**
- * Encrypted keystore for Ed25519 private keys (E1-2).
+ * Encrypted keystore for Ed25519 private keys (E1-2 / WP-2).
  *
  * - Private keys never leave the process in the clear after load.
  * - On-disk format: AES-256-GCM encrypted JSON, key derived via scrypt.
  * - Supports multiple keys + rotation (old keys kept for historical verify).
  * - Master passphrase / KMS_MASTER_KEY required in non-demo mode.
+ * - Corrupt / wrong passphrase → KEYSTORE_DECRYPT_FAILED (no silent regenerate).
  */
 
 import crypto from 'node:crypto';
@@ -12,7 +13,6 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
   generateEd25519KeyPair,
-  type KeyPair,
   publicKeyFromPem,
 } from './index.js';
 
@@ -48,12 +48,14 @@ function deriveKey(passphrase: string, salt: Buffer): Buffer {
   return crypto.scryptSync(passphrase, salt, 32, { N: 32768, r: 8, p: 1 });
 }
 
+const DEMO_PASSPHRASE = 'demo-only-ephemeral-passphrase-not-for-prod';
+
 function resolvePassphrase(explicit?: string): string {
   if (explicit && explicit.length >= 16) return explicit;
   const env = process.env.KMS_MASTER_KEY || process.env.SECRET_KEY;
   if (env && env.length >= 16) return env;
-  if (process.env.DEMO_MODE === '1' || process.env.NODE_ENV !== 'production') {
-    return crypto.randomBytes(32).toString('hex');
+  if (process.env.DEMO_MODE === '1') {
+    return DEMO_PASSPHRASE;
   }
   throw new Error(
     'Keystore requires KMS_MASTER_KEY (or passphrase) of at least 16 characters. Set DEMO_MODE=1 only for ephemeral local demos.'
@@ -118,10 +120,34 @@ export class EncryptedKeystore {
       throw new Error(`Keystore not found at ${opts.path}`);
     }
     const passphrase = resolvePassphrase(opts.passphrase);
-    const raw = JSON.parse(readFileSync(opts.path, 'utf8')) as KeystoreFile;
+    let raw: KeystoreFile;
+    try {
+      raw = JSON.parse(readFileSync(opts.path, 'utf8')) as KeystoreFile;
+    } catch (err) {
+      throw new Error(
+        `KEYSTORE_CORRUPT: cannot parse ${opts.path}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
     if (raw.version !== 1) throw new Error(`Unsupported keystore version: ${raw.version}`);
+    if (!raw.saltB64) throw new Error(`KEYSTORE_CORRUPT: missing saltB64 in ${opts.path}`);
     const salt = Buffer.from(raw.saltB64, 'base64');
-    return new EncryptedKeystore(opts.path, passphrase, salt, raw.keys);
+    const ks = new EncryptedKeystore(opts.path, passphrase, salt, raw.keys ?? []);
+
+    for (const r of raw.keys ?? []) {
+      try {
+        decryptPrivateKey(r, ks.kek);
+        return ks;
+      } catch {
+        /* try next */
+      }
+    }
+    if ((raw.keys ?? []).length > 0) {
+      throw new Error(
+        `KEYSTORE_DECRYPT_FAILED: cannot decrypt any key in ${opts.path}. ` +
+          `Wrong KMS_MASTER_KEY/passphrase or corrupted ciphertext. Refusing to start.`
+      );
+    }
+    return ks;
   }
 
   static open(opts: KeystoreOptions): EncryptedKeystore {
@@ -135,6 +161,30 @@ export class EncryptedKeystore {
     deviceId?: string;
   }): Promise<{ keyId: string; fingerprint: string; publicKeyPem: string }> {
     const kp = await generateEd25519KeyPair();
+    return this.storeGeneratedKey(kp, params);
+  }
+
+  generateKeySync(params: {
+    purpose: StoredKeyRecord['purpose'];
+    orgId?: string;
+    deviceId?: string;
+  }): { keyId: string; fingerprint: string; publicKeyPem: string } {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
+    const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }) as string;
+    const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
+    const spkiDer = publicKey.export({ type: 'spki', format: 'der' });
+    const publicKeyRaw = spkiDer.subarray(spkiDer.length - 32);
+    const fingerprint = crypto.createHash('sha256').update(publicKeyRaw).digest('hex').slice(0, 16);
+    return this.storeGeneratedKey(
+      { privateKeyPem, publicKeyPem, fingerprint },
+      params
+    );
+  }
+
+  private storeGeneratedKey(
+    kp: { privateKeyPem: string; publicKeyPem: string; fingerprint: string },
+    params: { purpose: StoredKeyRecord['purpose']; orgId?: string; deviceId?: string }
+  ): { keyId: string; fingerprint: string; publicKeyPem: string } {
     const keyId = `key_${params.purpose}_${kp.fingerprint}`;
     const enc = encryptPrivateKey(kp.privateKeyPem, this.kek);
 
