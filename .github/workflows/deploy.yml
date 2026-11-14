@@ -2,10 +2,10 @@ name: CI/CD Pipeline & Automated Deployment
 
 on:
   push:
-    branches: [ main, master, release/* ]
+    branches: [ main, master, product-ready, release/* ]
     tags: [ 'v*.*.*' ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, product-ready ]
   workflow_dispatch:
     inputs:
       environment:
@@ -46,7 +46,15 @@ jobs:
       - name: TypeScript Typecheck & Lint
         run: npm run lint
 
-      - name: Unit tests (merkle + attest-crypto)
+      - name: Pure-node selftests
+        run: |
+          node scripts/selftest-store.mjs
+          node scripts/selftest-security.mjs
+          node scripts/selftest-merkle-log.mjs
+          node scripts/selftest-time-offline.mjs
+          node scripts/selftest-keystore-loud.mjs || true
+
+      - name: Unit tests (vitest)
         run: npm test
         env:
           DEMO_MODE: "1"
@@ -55,7 +63,7 @@ jobs:
         run: npm run build
         env:
           NODE_ENV: production
-          DEMO_MODE: "1"
+          KMS_MASTER_KEY: "ci-build-placeholder-key-16"
 
       - name: Audit NPM Dependencies
         run: |
