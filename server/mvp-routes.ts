@@ -9,6 +9,18 @@ import {
   type ProofPackage,
 } from './services/store';
 import { requireScope, type AuthedRequest } from './services/auth';
+import {
+  appendPackageLeaf,
+  currentRoot,
+  getInclusionProof,
+  getLatestPublishedRoot,
+  getPublishedRoot,
+  publishDailyRoot,
+  listPublishedRootDates,
+  checkConsistency,
+  loadEntries,
+  verifyEntryInclusion,
+} from './services/transparency-log';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 const DISCLAIMER =
@@ -85,6 +97,12 @@ export function registerMvpRoutes(app: Express): void {
         timeAttestation: signed.timeAttestation,
       };
       savePackage(pkg);
+      const logResult = appendPackageLeaf({
+        packageId: id,
+        contentHash: signed.manifest.contentHash,
+        keyFingerprint: signed.keyFingerprint,
+      });
+      publishDailyRoot();
       res.status(201).json({
         packageId: id,
         ...signed,
@@ -92,6 +110,13 @@ export function registerMvpRoutes(app: Express): void {
         verifyUrl: `/api/v1/attest/packages/${id}`,
         offlineHint:
           'Download bundle and open /verify/ — no upload. TSA/OTS full verify: CLI (openssl ts / ots verify).',
+        log: {
+          index: logResult.entry.index,
+          leafHashHex: logResult.entry.leafHashHex,
+          treeSize: logResult.treeSize,
+          rootHex: logResult.rootHex,
+          inclusionProof: logResult.proof,
+        },
       });
     } catch (err) {
       console.error('[attest/sign]', err);
@@ -136,5 +161,35 @@ export function registerMvpRoutes(app: Express): void {
       disclaimer: pkg.disclaimer,
       createdAt: pkg.createdAt,
     });
+  });
+
+  app.get('/api/v1/log/root', (_req, res) => {
+    res.json({ live: currentRoot(), published: getLatestPublishedRoot() });
+  });
+  app.get('/api/v1/log/root/:date', (req, res) => {
+    const snap = getPublishedRoot(req.params.date);
+    if (!snap) return res.status(404).json({ error: 'No published root for date' });
+    res.json(snap);
+  });
+  app.get('/api/v1/log/entries', (_req, res) => {
+    res.json({ entries: loadEntries(), ...currentRoot() });
+  });
+  app.get('/api/v1/log/proof/:index', (req, res) => {
+    const index = Number(req.params.index);
+    if (!Number.isFinite(index)) return res.status(400).json({ error: 'bad index' });
+    const proof = getInclusionProof(index);
+    if (!proof) return res.status(404).json({ error: 'index not found' });
+    res.json({ ...proof, verifiedLocally: verifyEntryInclusion(index) });
+  });
+  app.get('/api/v1/log/consistency', (req, res) => {
+    const oldSize = Number(req.query.oldSize);
+    const oldRoot = String(req.query.oldRoot || '');
+    if (!Number.isFinite(oldSize) || !oldRoot) {
+      return res.status(400).json({ error: 'oldSize and oldRoot query params required' });
+    }
+    res.json({ consistent: checkConsistency(oldSize, oldRoot), ...currentRoot() });
+  });
+  app.get('/api/v1/log/roots', (_req, res) => {
+    res.json({ dates: listPublishedRootDates() });
   });
 }
