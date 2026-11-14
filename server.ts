@@ -6,10 +6,14 @@ import { attestStatus } from './server/services/attest';
 import { registerMvpRoutes } from './server/mvp-routes';
 import { storeInit } from './server/services/store';
 import { isPgEnabled, migrate, pgHealth } from './server/services/store-pg';
+import { assertSafeRuntime, applySecurityMiddleware } from './server/security';
 
 async function startServer() {
+  assertSafeRuntime();
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
+
+  applySecurityMiddleware(app);
   app.use(express.json({ limit: '12mb' }));
   app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 
@@ -29,11 +33,15 @@ async function startServer() {
     res.json({
       status: pg.ok === false ? 'degraded' : 'ok',
       product: 'echosign-attest',
-      version: '0.5.0-wp5',
+      version: '0.5.0-wp6',
       mode: attest.demoMode ? 'demo' : 'persistent-keys',
       storage: isPgEnabled() ? 'postgres' : 'file',
       timestamp: new Date().toISOString(),
-      attest: { ready: attest.ready, algorithm: attest.algorithm, keyFingerprint: attest.keyFingerprint },
+      attest: {
+        ready: attest.ready,
+        algorithm: attest.algorithm,
+        keyFingerprint: attest.keyFingerprint,
+      },
       store: storeInit(),
       postgres: isPgEnabled() ? pg : undefined,
     });

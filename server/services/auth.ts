@@ -1,12 +1,13 @@
 import type { Request, Response, NextFunction } from 'express';
-import { findApiKeyBySecret, type ApiKeyRecord } from './store';
+import type { ApiKeyRecord } from './store';
+import { findApiKeyBySecret } from './persistence';
 
 export interface AuthedRequest extends Request {
   apiKey?: ApiKeyRecord;
 }
 
 export function requireScope(...scopes: ApiKeyRecord['scopes']) {
-  return (req: AuthedRequest, res: Response, next: NextFunction) => {
+  return async (req: AuthedRequest, res: Response, next: NextFunction) => {
     const header = req.headers.authorization || '';
     const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
 
@@ -21,7 +22,7 @@ export function requireScope(...scopes: ApiKeyRecord['scopes']) {
       });
     }
 
-    const key = findApiKeyBySecret(token);
+    const key = await findApiKeyBySecret(token);
     if (!key) {
       return res.status(401).json({ error: 'Invalid or revoked API key' });
     }
