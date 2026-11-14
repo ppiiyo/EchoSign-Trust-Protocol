@@ -1,0 +1,20 @@
+{
+  "valid": true,
+  "packageId": "pkg_demo_preview",
+  "contentHash": "d37e451246931681ae808fbc758c3054eed80260dcf18b7e123b9a0866ebb70c",
+  "signatureValid": true,
+  "claims": {
+    "proves": "Integrity of the signed manifest (and referenced audio contentHash) at signing time",
+    "doesNotProve": [
+      "That a human was speaking",
+      "Deepfake / AI detection",
+      "Legal certification or chain-of-custody by itself"
+    ]
+  },
+  "timeAttestation": {
+    "clockSource": "server-clock-only",
+    "tsaStatus": "unavailable",
+    "otsStatus": "unavailable"
+  },
+  "generatedAt": "2026-11-14T20:08:23.340Z"
+}
