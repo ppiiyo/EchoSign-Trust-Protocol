@@ -2,15 +2,16 @@ import type { Express, Request, Response } from 'express';
 import multer from 'multer';
 import crypto from 'node:crypto';
 import { attestSignAudioWithTime, attestVerify, attestJwks, attestStatus } from './services/attest';
+import { storeInit, type ProofPackage } from './services/store';
 import {
   createApiKey, listApiKeys, revokeApiKey,
   registerDevice, listDevices,
-  savePackage, getPackage, listPackages, storeInit,
-  type ProofPackage,
-} from './services/store';
+  getPackage, listPackages,
+  savePackageAndLog,
+  storageMode,
+} from './services/persistence';
 import { requireScope, type AuthedRequest } from './services/auth';
 import {
-  appendPackageLeaf,
   currentRoot,
   getInclusionProof,
   getLatestPublishedRoot,
@@ -27,14 +28,14 @@ const DISCLAIMER =
   'Signature proves integrity of the audio bytes at signing time. It does not prove a human was speaking.';
 
 export function registerMvpRoutes(app: Express): void {
-  app.post('/api/v1/keys', (req: Request, res: Response) => {
+  app.post('/api/v1/keys', async (req: Request, res: Response) => {
     if (process.env.DEMO_MODE !== '1' && process.env.ALLOW_PUBLIC_KEY_CREATE !== '1') {
       const bootstrap = req.headers['x-bootstrap-secret'];
       if (!bootstrap || bootstrap !== process.env.BOOTSTRAP_SECRET) {
         return res.status(403).json({ error: 'Key creation requires DEMO_MODE=1 or X-Bootstrap-Secret' });
       }
     }
-    const { record, secret } = createApiKey({
+    const { record, secret } = await createApiKey({
       name: req.body?.name || 'default',
       orgId: req.body?.orgId,
       scopes: req.body?.scopes,
@@ -43,7 +44,7 @@ export function registerMvpRoutes(app: Express): void {
   });
 
   app.get('/api/v1/keys', requireScope('admin'), (_req, res) => {
-    res.json({ keys: listApiKeys().map(({ secretHash, ...r }) => r) });
+    res.json({ keys: listApiKeys() });
   });
 
   app.delete('/api/v1/keys/:id', requireScope('admin'), (req, res) => {
@@ -52,8 +53,8 @@ export function registerMvpRoutes(app: Express): void {
     res.json({ revoked: true });
   });
 
-  app.post('/api/v1/devices', requireScope('devices:write', 'admin', 'attest:sign'), (req: AuthedRequest, res) => {
-    const device = registerDevice({
+  app.post('/api/v1/devices', requireScope('devices:write', 'admin', 'attest:sign'), async (req: AuthedRequest, res) => {
+    const device = await registerDevice({
       label: req.body?.label || 'device',
       orgId: req.apiKey?.orgId || req.body?.orgId,
     });
@@ -96,12 +97,7 @@ export function registerMvpRoutes(app: Express): void {
         disclaimer: DISCLAIMER,
         timeAttestation: signed.timeAttestation,
       };
-      savePackage(pkg);
-      const logResult = appendPackageLeaf({
-        packageId: id,
-        contentHash: signed.manifest.contentHash,
-        keyFingerprint: signed.keyFingerprint,
-      });
+      const logResult = await savePackageAndLog(pkg);
       publishDailyRoot();
       res.status(201).json({
         packageId: id,
@@ -116,6 +112,7 @@ export function registerMvpRoutes(app: Express): void {
           treeSize: logResult.treeSize,
           rootHex: logResult.rootHex,
           inclusionProof: logResult.proof,
+          storage: storageMode(),
         },
       });
     } catch (err) {
@@ -138,17 +135,17 @@ export function registerMvpRoutes(app: Express): void {
   });
 
   app.get('/api/v1/attest/jwks', (_req, res) => res.json(attestJwks()));
-  app.get('/api/v1/attest/status', (_req, res) => res.json({ ...attestStatus(), store: storeInit() }));
-  app.get('/api/v1/attest/packages', requireScope('attest:read', 'admin'), (_req, res) => {
-    res.json({ packages: listPackages(100) });
+  app.get('/api/v1/attest/status', (_req, res) => res.json({ ...attestStatus(), store: storeInit(), storage: storageMode() }));
+  app.get('/api/v1/attest/packages', requireScope('attest:read', 'admin'), async (_req, res) => {
+    res.json({ packages: await listPackages(100), storage: storageMode() });
   });
-  app.get('/api/v1/attest/packages/:id', (req, res) => {
-    const pkg = getPackage(req.params.id);
+  app.get('/api/v1/attest/packages/:id', async (req, res) => {
+    const pkg = await getPackage(req.params.id);
     if (!pkg) return res.status(404).json({ error: 'Package not found' });
     res.json(pkg);
   });
-  app.get('/api/v1/attest/packages/:id/bundle', (req, res) => {
-    const pkg = getPackage(req.params.id);
+  app.get('/api/v1/attest/packages/:id/bundle', async (req, res) => {
+    const pkg = await getPackage(req.params.id);
     if (!pkg) return res.status(404).json({ error: 'Package not found' });
     res.setHeader('Content-Disposition', `attachment; filename="${pkg.id}.esatt.json"`);
     res.json({
