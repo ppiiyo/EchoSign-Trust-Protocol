@@ -81,9 +81,11 @@ export function corsMiddleware(req: Request, res: Response, next: NextFunction):
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
       res.setHeader('Access-Control-Max-Age', '600');
-      return res.status(204).end();
+      res.status(204).end();
+      return;
     }
-    return res.status(204).end();
+    res.status(204).end();
+    return;
   }
 
   if (origin && allow.includes(origin)) {
@@ -102,8 +104,11 @@ export function rateLimit(opts: { windowMs?: number; max?: number; pathPrefix?: 
   const prefix = opts.pathPrefix ?? '/api/';
   const hits = new Map<string, { count: number; resetAt: number }>();
 
-  return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.path.startsWith(prefix)) return next();
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.path.startsWith(prefix)) {
+      next();
+      return;
+    }
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
     let bucket = hits.get(ip);
@@ -116,12 +121,13 @@ export function rateLimit(opts: { windowMs?: number; max?: number; pathPrefix?: 
     res.setHeader('X-RateLimit-Remaining', String(Math.max(0, max - bucket.count)));
     res.setHeader('X-RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
     if (bucket.count > max) {
-      return res.status(429).json({
+      res.status(429).json({
         error: 'Rate limit exceeded',
         limit: max,
         windowMs,
         note: 'per-instance in-memory limiter (single-node)',
       });
+      return;
     }
     next();
   };
@@ -131,8 +137,11 @@ export function signRateLimit() {
   const windowMs = Number(process.env.SIGN_RATE_LIMIT_WINDOW_MS || 60_000);
   const max = Number(process.env.SIGN_RATE_LIMIT_MAX || 30);
   const hits = new Map<string, { count: number; resetAt: number }>();
-  return (req: Request, res: Response, next: NextFunction) => {
-    if (req.method !== 'POST' || !req.path.includes('/attest/sign')) return next();
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (req.method !== 'POST' || !req.path.includes('/attest/sign')) {
+      next();
+      return;
+    }
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
     let bucket = hits.get(ip);
@@ -142,7 +151,8 @@ export function signRateLimit() {
     }
     bucket.count += 1;
     if (bucket.count > max) {
-      return res.status(429).json({ error: 'Sign rate limit exceeded', limit: max, windowMs });
+      res.status(429).json({ error: 'Sign rate limit exceeded', limit: max, windowMs });
+      return;
     }
     next();
   };
