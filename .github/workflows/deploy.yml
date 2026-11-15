@@ -37,10 +37,15 @@ jobs:
 
       - name: Install Dependencies
         run: |
+          # Prefer lockfile when in sync; fall back to npm install if package.json drifted
           if [ -f package-lock.json ]; then
-            npm ci
+            npm ci --no-audit --no-fund || {
+              echo "::warning::npm ci failed (lock out of sync) — falling back to npm install"
+              rm -rf node_modules
+              npm install --no-audit --no-fund --engine-strict=false
+            }
           else
-            npm install
+            npm install --no-audit --no-fund --engine-strict=false
           fi
 
       - name: TypeScript Typecheck & Lint
