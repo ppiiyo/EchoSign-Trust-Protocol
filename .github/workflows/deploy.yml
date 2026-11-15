@@ -81,6 +81,8 @@ jobs:
     name: Docker Container Build & Push
     runs-on: ubuntu-latest
     needs: quality-gate
+    # Optional packaging path — does not gate pilot readiness (Vercel + on-prem compose are primary)
+    continue-on-error: true
     if: github.event_name != 'pull_request'
     permissions:
       contents: read
