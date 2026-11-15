@@ -1,4 +1,4 @@
-# EchoSign Attest · v1.0.0-rc.1
+# EchoSign Attest · v1.0.0-rc.2
 
 **Cryptographic audio integrity and provenance** — not a deepfake detector.
 
@@ -13,20 +13,30 @@ ingest → Ed25519 sign (canonical manifest) → proof package → offline verif
 | **Proves** | Integrity of bytes after signing · existence in time (TSA/OTS) · control of signing key · internal chain-of-custody |
 | **Does not prove** | Human vs AI · deepfake detection · courtroom certification · GOST/ISO 17025/SOC 2 |
 
-Branch: [`product-ready`](https://github.com/ppiiyo/EchoSign-Trust-Protocol/tree/product-ready) · Tag: `v1.0.0-rc.1`  
-Docs: [Threat model](docs/THREAT_MODEL.md) · [API](docs/API.md) · [Storage](docs/STORAGE.md) · [Verify](docs/VERIFY.md) · [Pilot kit](docs/PILOT_KIT.md) · [Changelog](CHANGELOG.md)
+Branch: [`release/v1.0.0`](https://github.com/ppiiyo/EchoSign-Trust-Protocol/tree/release/v1.0.0) · Tag: `v1.0.0-rc.2`  
+Docs: [ADMIN](docs/ADMIN.md) · [Deployment](docs/DEPLOYMENT.md) · [Threat model](docs/THREAT_MODEL.md) · [API](docs/API.md) · [Pilot kit](docs/PILOT_KIT.md) · [Changelog](CHANGELOG.md)
+
+## Live demo
+
+Try the hosted pilot (limited demo — ephemeral keys, no TSA/OTS, no Merkle log):
+
+| | |
+| --- | --- |
+| **App (sign)** | https://echosign-attest.vercel.app |
+| **Offline verify** | https://echosign-attest.vercel.app/verify/ |
+| **Health** | https://echosign-attest.vercel.app/health |
+
+Local full stack: `DEMO_MODE=1 ATTEST_OFFLINE=1 npm run dev` → http://localhost:3000 and http://localhost:3000/verify/
 
 ## Quick start
 
 ```bash
 git clone https://github.com/ppiiyo/EchoSign-Trust-Protocol.git
-cd EchoSign-Trust-Protocol && git checkout product-ready
+cd EchoSign-Trust-Protocol && git checkout release/v1.0.0
 cp .env.example .env && npm install
 
 node scripts/demo-sign-verify.mjs
 node scripts/verify-bundle.mjs tmp-demo/sample.esatt.json
-node scripts/report-integrity.mjs tmp-demo/sample.esatt.json --out tmp-report
-# → tmp-report/qr.svg (real QR)
 
 DEMO_MODE=1 ATTEST_OFFLINE=1 npm run dev
 # http://localhost:3000  ·  /verify/
