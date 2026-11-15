@@ -1,7 +1,7 @@
 {
   "name": "echosign-demo",
   "private": true,
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -24,7 +24,6 @@
     "build:all": "vite build && npm run build:server"
   },
   "dependencies": {
-    "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@types/multer": "^2.2.0",
     "@vitejs/plugin-react": "^5.0.4",
