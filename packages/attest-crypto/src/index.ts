@@ -1,6 +1,6 @@
 /**
  * @echosign/attest-crypto
- * Ed25519 sign/verify, Manifest v1, keystore, TSA, OpenTimestamps
+ * Ed25519 sign/verify, Manifest v1, keystore, TSA, OpenTimestamps, Merkle
  */
 
 import crypto from 'node:crypto';
@@ -149,23 +149,11 @@ export async function generateTestVector() {
 export { EncryptedKeystore } from './keystore.js';
 export type { StoredKeyRecord, KeystoreFile, KeystoreOptions } from './keystore.js';
 
-export { requestTimestamp, timestampCanonicalJson, verifyTimestampOpenssl } from './tsa.js';
+export { requestTimestamp, timestampCanonicalJson } from './tsa.js';
 export type { TsaRequestOptions, TsaResult } from './tsa.js';
 
-export { otsStamp, otsUpgrade, otsVerifyLocal, otsStampCanonical, verifyOtsWithCli, otsStatusFromProof } from './ots.js';
+export { otsStamp, otsUpgrade, otsVerifyLocal, otsStampCanonical } from './ots.js';
 export type { OtsStampResult, OtsVerifyResult } from './ots.js';
-
-export {
-  attachTimeAttestation,
-  verifyTimeAttestation,
-} from './time-attestation.js';
-export type {
-  TimeAttestation,
-  ClockSource,
-  TsaStatus,
-  OtsStatus,
-  AttachTimeOptions,
-} from './time-attestation.js';
 
 export {
   hashLeaf,
