@@ -84,7 +84,7 @@ function encryptPrivateKey(
   return {
     cipherB64: enc.toString('base64'),
     ivB64: iv.toString('base64'),
-    tagB64: tag.toString('('base64'),
+    tagB64: tag.toString('base64'),
   };
 }
 
