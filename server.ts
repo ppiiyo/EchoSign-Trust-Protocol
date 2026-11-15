@@ -1,3 +1,6 @@
+/**
+ * EchoSign Attest — product server (integrity / provenance only).
+ */
 import express from 'express';
 import path from 'path';
 import { readFileSync, existsSync } from 'node:fs';
@@ -7,6 +10,10 @@ import { registerMvpRoutes } from './server/mvp-routes';
 import { storeInit } from './server/services/store';
 import { isPgEnabled, migrate, pgHealth } from './server/services/store-pg';
 import { assertSafeRuntime, applySecurityMiddleware } from './server/security';
+
+const APP_VERSION = JSON.parse(
+  readFileSync(new URL('./package.json', import.meta.url), 'utf8')
+).version as string;
 
 async function startServer() {
   assertSafeRuntime();
@@ -33,7 +40,7 @@ async function startServer() {
     res.json({
       status: pg.ok === false ? 'degraded' : 'ok',
       product: 'echosign-attest',
-      version: '0.5.0-wp6',
+      version: APP_VERSION,
       mode: attest.demoMode ? 'demo' : 'persistent-keys',
       storage: isPgEnabled() ? 'postgres' : 'file',
       timestamp: new Date().toISOString(),
@@ -49,27 +56,35 @@ async function startServer() {
 
   app.get('/api/v1/openapi.json', (_req, res) => {
     const yamlPath = path.join(process.cwd(), 'openapi', 'openapi-v1.yaml');
-    if (!existsSync(yamlPath)) return res.status(404).json({ error: 'OpenAPI spec missing' });
+    if (!existsSync(yamlPath)) {
+      return res.status(404).json({ error: 'OpenAPI spec missing' });
+    }
     res.type('application/yaml').send(readFileSync(yamlPath, 'utf8'));
   });
 
   registerMvpRoutes(app);
 
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'custom' });
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'custom',
+    });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`EchoSign Attest on http://0.0.0.0:${PORT} storage=${isPgEnabled() ? 'postgres' : 'file'}`);
+    console.log(`EchoSign Attest ${APP_VERSION} on http://0.0.0.0:${PORT}`);
+    console.log(`  storage=${isPgEnabled() ? 'postgres' : 'file'}`);
   });
 }
 
 startServer().catch((err) => {
-  console.error('Failed to start', err);
+  console.error(err);
   process.exit(1);
 });
