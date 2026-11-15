@@ -52,8 +52,17 @@ export const AttestSignPanel: React.FC = () => {
     } catch (err) { setError(err instanceof Error ? err.message : 'Key create failed'); }
   };
 
+  // Vercel serverless request body ~4.5MB on hobby — fail fast with honest message
+  const DEMO_MAX_BYTES = 4 * 1024 * 1024;
+
   const sign = async () => {
     if (!file) return;
+    if (file.size > DEMO_MAX_BYTES) {
+      setError(
+        `File is ${(file.size / 1024 / 1024).toFixed(1)} MB. Limited demo host accepts up to ~4 MB (Vercel body limit). Use a shorter clip or docker compose for full 50 MB (docs/DEPLOYMENT.md).`
+      );
+      return;
+    }
     setLoading(true); setError(null); setResult(null);
     try {
       const form = new FormData();
@@ -66,11 +75,19 @@ export const AttestSignPanel: React.FC = () => {
       let data: Record<string, unknown> = {};
       try { data = text ? JSON.parse(text) : {}; }
       catch {
+        if (res.status === 413) {
+          throw new Error('Payload too large (HTTP 413). Limited demo accepts ~4 MB max. Use a shorter clip or docker compose.');
+        }
         throw new Error(res.status >= 500
-          ? `API unavailable (HTTP ${res.status}). Try again or use local demo.`
+          ? `API unavailable (HTTP ${res.status}). Serverless backend error — try again or use local demo.`
           : `Invalid API response (HTTP ${res.status})`);
       }
-      if (!res.ok) throw new Error(String(data.error || `HTTP ${res.status}`));
+      if (!res.ok) {
+        if (res.status === 413) {
+          throw new Error('Payload too large (HTTP 413). Limited demo accepts ~4 MB max. Use a shorter clip or docker compose.');
+        }
+        throw new Error(String(data.error || `HTTP ${res.status}`));
+      }
       setResult(data as unknown as SignResponse);
     } catch (err) { setError(err instanceof Error ? err.message : 'Sign failed'); }
     finally { setLoading(false); }
@@ -126,7 +143,7 @@ export const AttestSignPanel: React.FC = () => {
         <div className="mt-6 flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
           <label className="flex-1 text-[11px] uppercase tracking-wider text-slate-500 font-medium">
             API key <span className="normal-case tracking-normal text-slate-600 font-normal ml-1">(optional in DEMO_MODE)</span>
-            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="esk_live_\u2026"
+            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="esk_live_…"
               className="mt-1.5 w-full rounded-xl bg-black/40 border border-white/10 px-3.5 py-2.5 text-sm text-slate-200 font-mono placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/40" />
           </label>
           <motion.button type="button" onClick={createKey} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
@@ -146,7 +163,7 @@ export const AttestSignPanel: React.FC = () => {
           <UploadCloud className="w-7 h-7 text-slate-400" />
         </div>
         <p className="text-slate-200 font-medium text-[15px]">Drop audio or click to select</p>
-        <p className="text-xs text-slate-500 mt-1.5">WAV \u00b7 MP3 \u00b7 WebM \u2014 hashed and signed as-is</p>
+        <p className="text-xs text-slate-500 mt-1.5">WAV · MP3 · WebM — hashed and signed as-is</p>
         <AnimatePresence>
           {file && (
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
@@ -165,7 +182,7 @@ export const AttestSignPanel: React.FC = () => {
         <span className="absolute inset-0 bg-gradient-to-r from-emerald-600 to-cyan-600" />
         <span className="relative flex items-center gap-2">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Package className="w-4 h-4" />}
-          {loading ? 'Signing\u2026' : 'Sign & create package'}
+          {loading ? 'Signing…' : 'Sign & create package'}
         </span>
       </motion.button>
 
@@ -208,12 +225,12 @@ export const AttestSignPanel: React.FC = () => {
               </div>
               <div className="rounded-2xl bg-black/25 border border-white/5 px-4 py-3">
                 <dt className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Content hash</dt>
-                <dd className="text-sm text-slate-200 font-mono break-all">{result.contentHash || '\u2014'}</dd>
+                <dd className="text-sm text-slate-200 font-mono break-all">{result.contentHash || '—'}</dd>
               </div>
               <div className="rounded-2xl bg-black/25 border border-white/5 px-4 py-3 sm:col-span-2">
                 <dt className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Clock / TSA / OTS</dt>
                 <dd className="text-sm text-slate-200 font-mono">
-                  {result.timeAttestation?.clockSource || 'n/a'} \u00b7 TSA {result.timeAttestation?.tsa?.status || 'n/a'} \u00b7 OTS {result.timeAttestation?.ots?.status || 'n/a'}
+                  {result.timeAttestation?.clockSource || 'n/a'} · TSA {result.timeAttestation?.tsa?.status || 'n/a'} · OTS {result.timeAttestation?.ots?.status || 'n/a'}
                 </dd>
               </div>
             </dl>
