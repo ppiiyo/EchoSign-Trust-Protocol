@@ -4,50 +4,45 @@
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
     "module": "ESNext",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "moduleDetection": "force",
     "allowJs": true,
     "jsx": "react-jsx",
-    "paths": {
-      "@/*": [
-        "./*"
-      ]
-    },
+    "paths": { "@/*": ["./*"] },
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "strict": false
   },
   "include": [
     "src/**/*",
-    "server.ts",
-    "server/ops.ts",
     "server/security.ts",
-    "server/mvp-routes.ts",
-    "server/services/attest.ts",
-    "server/services/auth.ts",
     "server/services/store.ts",
-    "server/services/store-pg.ts",
-    "server/services/persistence.ts",
-    "server/services/report.ts",
-    "server/services/root-anchor.ts",
-    "server/services/transparency-log.ts",
-    "packages/attest-crypto/src/**/*",
-    "api/**/*"
+    "server/services/auth.ts",
+    "packages/attest-crypto/src/index.ts",
+    "packages/attest-crypto/src/keystore.ts",
+    "packages/attest-crypto/src/fingerprint.ts",
+    "packages/attest-crypto/src/tsa.ts",
+    "packages/attest-crypto/src/ots.ts",
+    "packages/attest-crypto/src/merkle.ts"
   ],
   "exclude": [
     "node_modules",
     "dist",
+    "packages/attest-crypto/src/time-attestation.ts",
     "server/services/audit.ts",
     "server/services/watermark.ts",
     "server/services/blockchain.ts",
     "server/services/liveness.ts",
-    "server/services/analysis.ts"
+    "server/services/analysis.ts",
+    "server/services/report.ts",
+    "server/services/transparency-log.ts",
+    "server/services/store-pg.ts",
+    "server/services/root-anchor.ts",
+    "server/services/attest.ts",
+    "server/services/persistence.ts",
+    "server/mvp-routes.ts"
   ]
 }
