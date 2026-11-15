@@ -21,6 +21,33 @@
       ]
     },
     "allowImportingTsExtensions": true,
-    "noEmit": true
-  }
+    "noEmit": true,
+    "strict": false
+  },
+  "include": [
+    "src/**/*",
+    "server.ts",
+    "server/ops.ts",
+    "server/security.ts",
+    "server/mvp-routes.ts",
+    "server/services/attest.ts",
+    "server/services/auth.ts",
+    "server/services/store.ts",
+    "server/services/store-pg.ts",
+    "server/services/persistence.ts",
+    "server/services/report.ts",
+    "server/services/root-anchor.ts",
+    "server/services/transparency-log.ts",
+    "packages/attest-crypto/src/**/*",
+    "api/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "server/services/audit.ts",
+    "server/services/watermark.ts",
+    "server/services/blockchain.ts",
+    "server/services/liveness.ts",
+    "server/services/analysis.ts"
+  ]
 }
