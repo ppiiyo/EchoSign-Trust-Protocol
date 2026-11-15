@@ -1,5 +1,12 @@
+/**
+ * Append-only transparency log (WP-2).
+ * File mode: JSONL under data/log/ with exclusive lock + fsync.
+ * PG mode: entries in log_entries (store-pg); this module serves file backend + leaf helpers.
+ * Consistency (single-node): full recompute, not logarithmic RFC6962 path.
+ */
 import {
   existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, readdirSync,
+  openSync, closeSync, unlinkSync, fsyncSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -27,18 +34,45 @@ function logDir(): string {
   return join(base, 'log');
 }
 function entriesPath(): string { return join(logDir(), 'entries.jsonl'); }
+function lockPath(): string { return join(logDir(), '.entries.lock'); }
 function rootsDir(): string { return join(logDir(), 'roots'); }
 function ensureDirs(): void {
   mkdirSync(logDir(), { recursive: true });
   mkdirSync(rootsDir(), { recursive: true });
 }
-function leafPayload(entry: Omit<LogEntry, 'index' | 'leafHashHex'>): Buffer {
+
+function withFileLogLock<T>(fn: () => T): T {
+  ensureDirs();
+  const lp = lockPath();
+  const deadline = Date.now() + 10_000;
+  let fd = -1;
+  while (Date.now() < deadline) {
+    try { fd = openSync(lp, 'wx'); break; }
+    catch { const s = Date.now(); while (Date.now() - s < 15) { /* spin */ } }
+  }
+  if (fd < 0) throw new Error('transparency-log: could not acquire file lock');
+  try { return fn(); }
+  finally {
+    try { closeSync(fd); } catch { /* */ }
+    try { unlinkSync(lp); } catch { /* */ }
+  }
+}
+
+export function leafPayload(entry: {
+  packageId: string; contentHash: string; keyFingerprint: string; timestamp: string;
+}): Buffer {
   return Buffer.from(JSON.stringify({
     packageId: entry.packageId,
     contentHash: entry.contentHash,
     keyFingerprint: entry.keyFingerprint,
     timestamp: entry.timestamp,
   }), 'utf8');
+}
+
+export function computeLeafHashHex(entry: {
+  packageId: string; contentHash: string; keyFingerprint: string; timestamp: string;
+}): string {
+  return hashLeaf(leafPayload(entry)).toString('hex');
 }
 
 export function loadEntries(): LogEntry[] {
@@ -63,64 +97,77 @@ export function appendPackageLeaf(input: {
   entry: LogEntry; rootHex: string; treeSize: number;
   proof: { side: 'L' | 'R'; hash: string }[];
 } {
-  ensureDirs();
-  const existing = loadEntries();
-  const timestamp = input.timestamp ?? new Date().toISOString();
-  const provisional = {
-    packageId: input.packageId,
-    contentHash: input.contentHash,
-    keyFingerprint: input.keyFingerprint,
-    timestamp,
-  };
-  const leafHash = hashLeaf(leafPayload(provisional));
-  const entry: LogEntry = {
-    index: existing.length,
-    timestamp,
-    packageId: input.packageId,
-    contentHash: input.contentHash,
-    keyFingerprint: input.keyFingerprint,
-    leafHashHex: leafHash.toString('hex'),
-  };
-  appendFileSync(entriesPath(), JSON.stringify(entry) + '\n', { mode: 0o600 });
-  const all = [...existing, entry];
-  const hashes = leafHashesFrom(all);
-  const { path, root } = inclusionProof(hashes, entry.index);
-  return {
-    entry,
-    rootHex: root.toString('hex'),
-    treeSize: all.length,
-    proof: path.map((p) => ({ side: p.side, hash: p.hash.toString('hex') })),
-  };
+  return withFileLogLock(() => {
+    const existing = loadEntries();
+    const timestamp = input.timestamp ?? new Date().toISOString();
+    const provisional = {
+      packageId: input.packageId,
+      contentHash: input.contentHash,
+      keyFingerprint: input.keyFingerprint,
+      timestamp,
+    };
+    const leafHashHex = computeLeafHashHex(provisional);
+    const entry: LogEntry = {
+      index: existing.length,
+      timestamp,
+      packageId: input.packageId,
+      contentHash: input.contentHash,
+      keyFingerprint: input.keyFingerprint,
+      leafHashHex,
+    };
+    appendFileSync(entriesPath(), JSON.stringify(entry) + '\n');
+    try {
+      const fd = openSync(entriesPath(), 'r+');
+      fsyncSync(fd);
+      closeSync(fd);
+    } catch { /* */ }
+    const all = [...existing, entry];
+    const hashes = leafHashesFrom(all);
+    const inc = inclusionProof(hashes, entry.index);
+    return {
+      entry,
+      rootHex: inc.root.toString('hex'),
+      treeSize: all.length,
+      proof: inc.path.map((s) => ({ side: s.side, hash: s.hash.toString('hex') })),
+    };
+  });
 }
 
 export function getInclusionProof(index: number) {
   const entries = loadEntries();
   if (index < 0 || index >= entries.length) return null;
   const hashes = leafHashesFrom(entries);
-  const { path, root } = inclusionProof(hashes, index);
+  const inc = inclusionProof(hashes, index);
   return {
     entry: entries[index],
-    rootHex: root.toString('hex'),
+    rootHex: inc.root.toString('hex'),
     treeSize: entries.length,
-    proof: path.map((p) => ({ side: p.side, hash: p.hash.toString('hex') })),
+    proof: inc.path.map((s) => ({ side: s.side, hash: s.hash.toString('hex') })),
   };
 }
 
-export function verifyEntryInclusion(index: number): boolean {
-  const got = getInclusionProof(index);
-  if (!got) return false;
-  return verifyInclusion(Buffer.from(got.entry.leafHashHex, 'hex'), got.proof, got.rootHex);
+export function verifyEntryInclusion(
+  entry: LogEntry,
+  proof: { side: 'L' | 'R'; hash: string }[],
+  rootHex: string
+): boolean {
+  const leaf = Buffer.from(entry.leafHashHex, 'hex');
+  const steps = proof.map((p) => ({ side: p.side, hash: Buffer.from(p.hash, 'hex') }));
+  return verifyInclusion(leaf, entry.index, steps, Buffer.from(rootHex, 'hex'));
 }
 
+/** Single-node: recompute root from leaves (O(n)), not logarithmic consistency proof. */
 export function checkConsistency(oldSize: number, oldRootHex: string): boolean {
   const entries = loadEntries();
-  const { rootHex } = currentRoot(entries);
-  return consistencyCheck(leafHashesFrom(entries), oldSize, oldRootHex, rootHex);
+  if (oldSize > entries.length) return false;
+  const oldHashes = leafHashesFrom(entries.slice(0, oldSize));
+  const recomputed = computeRootFromLeafHashes(oldHashes).toString('hex');
+  if (recomputed !== oldRootHex) return false;
+  return consistencyCheck(oldHashes, leafHashesFrom(entries));
 }
 
-export function publishDailyRoot(dateUtc?: string): LogRootSnapshot {
+export function publishDailyRoot(date = new Date().toISOString().slice(0, 10)): LogRootSnapshot {
   ensureDirs();
-  const date = dateUtc ?? new Date().toISOString().slice(0, 10);
   const { treeSize, rootHex } = currentRoot();
   const snap: LogRootSnapshot = { date, treeSize, rootHex, publishedAt: new Date().toISOString() };
   writeFileSync(join(rootsDir(), `${date}.json`), JSON.stringify(snap, null, 2));
