@@ -134,6 +134,8 @@ export interface ProofPackage {
   keyFingerprint: string;
   audioStored?: boolean;
   disclaimer: string;
+  /** Honest time attestation (TSA / OTS / server-clock). */
+  timeAttestation?: unknown;
 }
 
 export function savePackage(pkg: ProofPackage): void {
