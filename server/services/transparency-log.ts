@@ -1,7 +1,6 @@
 /**
  * Append-only transparency log (WP-2).
  * File mode: JSONL under data/log/ with exclusive lock + fsync.
- * PG mode: entries in log_entries (store-pg); this module serves file backend + leaf helpers.
  * Consistency (single-node): full recompute, not logarithmic RFC6962 path.
  */
 import {
@@ -153,7 +152,8 @@ export function verifyEntryInclusion(
 ): boolean {
   const leaf = Buffer.from(entry.leafHashHex, 'hex');
   const steps = proof.map((p) => ({ side: p.side, hash: Buffer.from(p.hash, 'hex') }));
-  return verifyInclusion(leaf, entry.index, steps, Buffer.from(rootHex, 'hex'));
+  // merkle.verifyInclusion(leafHash, path, expectedRoot)
+  return verifyInclusion(leaf, steps, Buffer.from(rootHex, 'hex'));
 }
 
 /** Single-node: recompute root from leaves (O(n)), not logarithmic consistency proof. */
@@ -163,7 +163,8 @@ export function checkConsistency(oldSize: number, oldRootHex: string): boolean {
   const oldHashes = leafHashesFrom(entries.slice(0, oldSize));
   const recomputed = computeRootFromLeafHashes(oldHashes).toString('hex');
   if (recomputed !== oldRootHex) return false;
-  return consistencyCheck(oldHashes, leafHashesFrom(entries));
+  const newRootHex = computeRootFromLeafHashes(leafHashesFrom(entries)).toString('hex');
+  return consistencyCheck(leafHashesFrom(entries), oldSize, oldRootHex, newRootHex);
 }
 
 export function publishDailyRoot(date = new Date().toISOString().slice(0, 10)): LogRootSnapshot {
