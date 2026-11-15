@@ -44,8 +44,16 @@ export interface KeystoreOptions {
   passphrase?: string;
 }
 
+/** Production N=32768; CI/DEMO use N=16384 to stay under OpenSSL memory cap on runners. */
+function scryptParams(): { N: number; r: number; p: number } {
+  if (process.env.CI === 'true' || process.env.DEMO_MODE === '1' || process.env.NODE_ENV === 'test') {
+    return { N: 16384, r: 8, p: 1 };
+  }
+  return { N: 32768, r: 8, p: 1 };
+}
+
 function deriveKey(passphrase: string, salt: Buffer): Buffer {
-  return crypto.scryptSync(passphrase, salt, 32, { N: 32768, r: 8, p: 1 });
+  return crypto.scryptSync(passphrase, salt, 32, scryptParams());
 }
 
 const DEMO_PASSPHRASE = 'demo-only-ephemeral-passphrase-not-for-prod';
@@ -76,7 +84,7 @@ function encryptPrivateKey(
   return {
     cipherB64: enc.toString('base64'),
     ivB64: iv.toString('base64'),
-    tagB64: tag.toString('base64'),
+    tagB64: tag.toString('('base64'),
   };
 }
 
