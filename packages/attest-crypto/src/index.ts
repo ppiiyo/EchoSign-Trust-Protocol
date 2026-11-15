@@ -64,6 +64,15 @@ export function publicKeyFromPem(publicKeyPem: string): crypto.KeyObject {
   return crypto.createPublicKey(publicKeyPem);
 }
 
+export function ed25519PublicKeyRaw(publicKeyPem: string): Buffer {
+  const spkiDer = crypto.createPublicKey(publicKeyPem).export({ type: 'spki', format: 'der' });
+  return spkiDer.subarray(spkiDer.length - 32);
+}
+
+export function fingerprintFromPublicKeyPem(publicKeyPem: string): string {
+  return crypto.createHash('sha256').update(ed25519PublicKeyRaw(publicKeyPem)).digest('hex').slice(0, 16);
+}
+
 export function privateKeyFromPem(privateKeyPem: string): crypto.KeyObject {
   return crypto.createPrivateKey(privateKeyPem);
 }
@@ -140,8 +149,31 @@ export async function generateTestVector() {
 export { EncryptedKeystore } from './keystore.js';
 export type { StoredKeyRecord, KeystoreFile, KeystoreOptions } from './keystore.js';
 
-export { requestTimestamp, timestampCanonicalJson } from './tsa.js';
+export { requestTimestamp, timestampCanonicalJson, verifyTimestampOpenssl } from './tsa.js';
 export type { TsaRequestOptions, TsaResult } from './tsa.js';
 
-export { otsStamp, otsUpgrade, otsVerifyLocal, otsStampCanonical } from './ots.js';
+export { otsStamp, otsUpgrade, otsVerifyLocal, otsStampCanonical, verifyOtsWithCli, otsStatusFromProof } from './ots.js';
 export type { OtsStampResult, OtsVerifyResult } from './ots.js';
+
+export {
+  attachTimeAttestation,
+  verifyTimeAttestation,
+} from './time-attestation.js';
+export type {
+  TimeAttestation,
+  ClockSource,
+  TsaStatus,
+  OtsStatus,
+  AttachTimeOptions,
+} from './time-attestation.js';
+
+export {
+  hashLeaf,
+  hashNode,
+  computeRootFromLeafHashes,
+  inclusionProof,
+  verifyInclusion,
+  consistencyCheck,
+  leafHashHex,
+  rootHex,
+} from './merkle.js';
